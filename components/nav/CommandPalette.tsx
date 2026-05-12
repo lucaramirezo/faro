@@ -20,6 +20,7 @@ const COMMANDS: Array<{
   { id: "home", label: "Go to Home", hint: "/home", href: "/home" },
   { id: "cost", label: "Go to Cost", hint: "/cost", href: "/cost" },
   { id: "dreams", label: "Go to Dreams", hint: "/dreams", href: "/dreams" },
+  { id: "profile", label: "Open profile", hint: "lwiki", href: "/home" },
 ];
 
 export function CommandPalette() {

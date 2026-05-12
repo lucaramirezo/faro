@@ -1,3 +1,5 @@
+import "server-only";
+
 import { copyFile, mkdir, rename, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { getDb } from "@/lib/db";

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";

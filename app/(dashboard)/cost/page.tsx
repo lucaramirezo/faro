@@ -3,7 +3,6 @@ import {
   Brain02Icon,
   CloudIcon,
   Comet01Icon,
-  CpuIcon,
   GithubIcon,
 } from "@hugeicons/core-free-icons";
 import { AuthModePill } from "@/components/cost/AuthModePill";

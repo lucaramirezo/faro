@@ -24,6 +24,26 @@ export function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Dev-only convenience: when NODE_ENV !== production AND no identity
+  // header is set, inject the first configured owner login so localhost
+  // browsing works without a header-spoofing extension. Production traffic
+  // via Tailscale Serve always has the real header set + this branch is
+  // gated by NODE_ENV so it never fires on pei (systemd sets production).
+  if (process.env.NODE_ENV !== "production" && !req.headers.get("tailscale-user-login")) {
+    let owners: string[] = [];
+    try {
+      owners = requireOwnerLogins();
+    } catch {
+      // misconfigured — fall through to the normal failure path
+    }
+    if (owners.length > 0) {
+      const requestHeaders = new Headers(req.headers);
+      requestHeaders.set("x-faro-login", owners[0]);
+      console.log(`[faro] auth: dev-mode auto-login as ${owners[0]} for ${path}`);
+      return NextResponse.next({ request: { headers: requestHeaders } });
+    }
+  }
+
   // Defense in depth: when X-Forwarded-For is set, the first IP is the
   // originating client (per Tailscale Serve's behavior). If it's outside the
   // tailnet CIDR, reject before reading the identity header — prevents header

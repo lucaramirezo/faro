@@ -18,7 +18,11 @@ export type TrackedUnit = (typeof FARO_TRACKED_UNITS)[number];
 
 function probeOnce(unit: string): Promise<UnitStatus> {
   return new Promise((resolveP) => {
-    const proc = spawn("systemctl", ["--user", "is-active", unit], {
+    // Faro-tracked units live in the system manager (/etc/systemd/system/),
+    // not the per-user one. `is-active` is callable without sudo for system
+    // units. `--user` would silently fail in headless contexts that lack
+    // DBUS_SESSION_BUS_ADDRESS, returning "unknown" for every probe.
+    const proc = spawn("systemctl", ["is-active", unit], {
       stdio: ["ignore", "pipe", "pipe"],
     });
     let out = "";

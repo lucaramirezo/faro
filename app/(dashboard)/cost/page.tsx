@@ -196,8 +196,7 @@ export default async function CostPage() {
           fiveHourBlockTokens={activeBlock?.totalTokens}
           fiveHourBlockProjectedTokens={activeBlock?.projection?.totalTokens}
           fiveHourBlockRemainingMinutes={activeBlock?.projection?.remainingMinutes}
-          weeklyMinutesUsed={weeklyHours !== null ? weeklyHours * 60 : undefined}
-          weeklyMinutesCapLow={240 * 60}
+          weeklyHoursUsed={weeklyHours ?? undefined}
         />
       </section>
     </div>

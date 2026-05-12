@@ -176,11 +176,11 @@ faro/                            # Next.js monorepo at lwiki repo root
     └── fixtures/                # sample jsonl, dream reports
 ```
 
-**Runtime:** Bun 1.2+ (matches refactor-canon-bot stack pin). Native modules use Node 22 ABI (Bun bundles it). One systemd unit on pei: `bun .next/standalone/server.js`.
+**Runtime (production):** **Node 22+** (`/usr/bin/node`). Bun (1.3.13+) is install + dev only — does NOT run faro in production because `bun:sqlite` ships SQLite 3.51.2 (inside a known WAL bug window) and `better-sqlite3` lacks Bun ABI support (see `oven-sh/bun#4290`). One systemd unit on pei: `node .next/standalone/server.js`, listens on `127.0.0.1:8766`.
 **Build:** `bun next build` produces `.next/standalone/` with bundled dependencies. Output committed to git? **No** — built fresh on pei via post-pull hook OR in GitLab CI which pushes the build artifact.
-**State:** shared SQLite at `slack_agent/runs/state.db` (existing). Faro opens it with `better-sqlite3` in WAL mode. Python slack_agent continues writing concurrently — WAL handles it.
-**Auth:** `middleware.ts` reads `Tailscale-User-Login` request header; rejects with 403 if not in `profiles/lwiki.yml.owner_logins`. Tailscale Serve auto-strips spoofed copies before they hit Bun.
-**Edge:** Caddy on pei (NEW — currently Tailscale Serve fronts directly) reverse-proxies port 3000 → `pei.tail<id>.ts.net:443`. Caddy preserves `Tailscale-User-Login` header. Why Caddy: positions us for Phase 4 multi-host + future Ionos domain without rewriting deploy.
+**State:** shared SQLite at `slack_agent/runs/state.db` (existing). Faro opens it with `better-sqlite3` in WAL mode. Python slack_agent continues writing concurrently — WAL handles it. Pei rebuilt system SQLite to 3.53.1 from source (Ubuntu jammy apt only ships 3.51); see `infra/pei/README.md` §SQLite.
+**Auth:** `middleware.ts` reads `Tailscale-User-Login` request header; rejects with 403 if not in `profiles/lwiki.yml.owner_logins`. Tailscale Serve auto-strips spoofed copies before they hit Node.
+**Edge (v0.1):** **Tailscale Serve directly fronts Node** at port `:8443` on the existing `pei.taild21074.ts.net` host (port-based, NOT sub-path `/faro` — Tailscale `--set-path` strips the prefix and conflicts with Next.js basePath). Caddy 2.x is installed on pei but **deferred to v0.2** (Caddyfile + Ionos public domain + Keycloak OIDC ride together).
 **Dev:** `bun dev` locally; talks to a copy of `state.db` (sync down from pei via existing rsync pattern).
 
 ### 5.2 Profile boundary (single-tenant now, multi-tenant later)
@@ -399,7 +399,8 @@ faro/lwiki ● active      ⌘K   Home  Cost  Skills  Memory  Dreams  Integratio
 
 | Layer | Choice | Version (May 2026) | Rationale |
 |---|---|---|---|
-| Runtime | **Bun** | 1.2+ | Matches refactor-canon-bot stack pin. Node 22 ABI bundled for native modules. |
+| Runtime (production) | **Node** | 22+ | `bun:sqlite` ships SQLite 3.51.2 (WAL bug window); better-sqlite3 lacks Bun ABI support. Node is the safe runtime. |
+| Package manager / dev | **Bun** | 1.3.13+ | Fast installs, fast `bun dev`, `bun run` script-runner. Pinned via `packageManager` field. Avoid 1.3.6 (Next 16.1.2 dep-resolution bug) and 1.3.7 (Cache Components broken). |
 | Framework | **Next.js** | 16 | App Router, RSC, Server Actions, standalone build for systemd deploy. |
 | UI lib | **React** | 19 | Required by Next.js 16 + shadcn. |
 | Styling | **Tailwind v4** | 4.x | shadcn Luma is built on Tailwind v4 + `@theme`. |
@@ -426,7 +427,7 @@ faro/lwiki ● active      ⌘K   Home  Cost  Skills  Memory  Dreams  Integratio
 | Skill: design system | NEW `faro-design-guidelines` (clone of `brand-guidelines`) | TBD | Phase 0 — locks palette/fonts before any UI ships. |
 | Mirror destination | `github.com/lucaramirezo/faro` | — | Subtree-pushed from GitLab on every main push. |
 | CI/CD | **GitLab CI** for build + mirror (primary), **GitHub Actions** for OSS readers only | — | Primary CI stays on self-hosted GitLab. |
-| Production deploy | systemd unit on pei, `bun .next/standalone/server.js` | — | One process. |
+| Production deploy | systemd unit on pei, `node .next/standalone/server.js` on `:8766`, fronted by `tailscale serve --https=8443` | — | One process. Tailscale Serve injects `Tailscale-User-Login` directly to Node. |
 
 **Explicit non-choices:**
 
@@ -469,7 +470,7 @@ FARO_OWNER_LOGIN=lucaramirezol@gmail.com
 FARO_OPENROUTER_API_KEY=<set in heartbeat/.env, mirrored>
 FARO_PRICING_REFRESH_HOURS=168
 FARO_CCUSAGE_PATH=ccusage
-FARO_STATE_DB=/home/luca/projects/lwiki/slack_agent/runs/state.db
+FARO_STATE_DB=/home/luca/projects/lwiki/slack_agent/runs/state.db  # laptop layout; on pei use /home/luca/lwiki/slack_agent/runs/state.db
 ```
 
 `faro/profiles/*.yml` files declare each agent profile.
@@ -534,7 +535,7 @@ Used for per-claim mutations (faster than route handlers for form-driven actions
 - ✅ The 2026-05-12 Phase-5 anomaly dispatches: "Remove stale Phase 5 DEFERRED line" card under PRUNED, approved, `memory/memory.md:10` is gone.
 - ✅ Existing Slack dream-approval flow still works unchanged.
 - ✅ Tailscale-User-Login auth gates 100% of routes; favicon-only exemption preserved.
-- ✅ `lwiki_ui/` systemd unit stopped on pei; Tailscale Serve points at faro:3000.
+- ✅ `lwiki_ui/` systemd unit stopped on pei; Tailscale Serve points at `:8443 → 127.0.0.1:8766` (Node faro).
 - ✅ GitHub `lucaramirezo/faro` repo has the `faro/` subtree, last commit matching GitLab origin.
 
 ### 10.2 Quality bars
@@ -551,9 +552,21 @@ Used for per-claim mutations (faster than route handlers for form-driven actions
 
 > Day estimates assume one focused half-day of build per "build-day" (matches Luca's cadence).
 
-### Phase 0 — Scaffold + GitHub mirror (~2d)
+### Phase 0 — Scaffold + GitHub mirror (~2d) — **SHIPPED 2026-05-12**
 
 **Goal:** stand up the Next.js monorepo at `faro/`, lock the design system, set up GitHub mirror. Zero application features.
+
+> **Deviations captured during execute (2026-05-12)** — see [`AGENTS.md`](./AGENTS.md) §"Faro Phase 0 deviations" and §14 decision 6 for canonical refs. **Phase 1 planning must use the deviation list, not the original deliverable bullets below.**
+>
+> 1. **Runtime: Node 22+** in production (Bun → Node pivot due to `better-sqlite3` ABI gap + `bun:sqlite` SQLite 3.51 WAL bug).
+> 2. **Port: 8766** in systemd (NOT 3000).
+> 3. **Tailscale Serve: port `:8443`** on existing `pei.taild21074.ts.net` (NOT sub-path `/faro`, NOT separate hostname).
+> 4. **Pei filesystem: `/home/luca/lwiki/`** (laptop is `/home/luca/projects/lwiki/`). Override via `FARO_AGENT_ROOT`.
+> 5. **SQLite 3.53.1 built from source on pei** (jammy apt ships 3.51).
+> 6. **Caddy deferred to v0.2** (installed but unconfigured; see [`infra/pei/caddy/README.md`](../infra/pei/caddy/README.md)).
+> 7. **GitHub mirror from pei shell needs `GIT_SSH_COMMAND="ssh -p 22 ..."`** (pei's `/etc/ssh/ssh_config` forces port 2269 for GitLab). CI runner is clean — automated job works without override.
+> 8. **Biome lint scopes out `components/ui/**`** (shadcn-shipped a11y warnings).
+> 9. **`middleware` → `proxy` deprecation in Next.js 16.2.6** — cosmetic warning, tracked for Phase 1 rename pass.
 
 **Deliverables:**
 
@@ -576,8 +589,8 @@ Used for per-claim mutations (faster than route handlers for form-driven actions
   - [ ] `.gitlab-ci.yml` job `mirror-faro-subtree` — runs on push to main, executes `git subtree split --prefix=faro -b _faro_only` then `git push github _faro_only:main`.
   - [ ] First manual push to validate.
 - [ ] **NEW design-guidelines skill scaffolding**: `faro/.claude/skills/faro-design-guidelines/SKILL.md` — clone of Anthropic's `brand-guidelines` skill, palette = Luma + TRL accents, fonts = Geist (matches KULT Pro), enforces tokens before any UI component ships. NOTE: a full DESIGN.md draft for Phase 5 artifact pipeline is a separate phase gate.
-- [ ] **Caddy on pei**: install Caddy 2.x, write `Caddyfile` that reverse-proxies port 3000 → Tailscale Serve, preserves `Tailscale-User-Login` header. Stand alongside existing Tailscale Serve config (no cut yet).
-- [ ] **systemd unit** `faro.service` at `/etc/systemd/system/faro.service` — runs `bun .next/standalone/server.js` (after `bun next build`).
+- [ ] **Caddy on pei** — installed (`apt install caddy`) but **Caddyfile.faro deferred to v0.2** (no public domain in v0.1). Phase 0 routes via Tailscale Serve directly to the Node port. See `infra/pei/caddy/README.md`.
+- [ ] **systemd unit** `faro.service` at `/etc/systemd/system/faro.service` — runs `node .next/standalone/server.js` on port `8766` (after `bun next build`).
 - [ ] **Decommission plan** for `lwiki_ui/`: documented but not executed (executed at end of Phase 1).
 
 **Validation:**
@@ -696,7 +709,8 @@ Used for per-claim mutations (faster than route handlers for form-driven actions
 |---|---|---|---|
 | `claim_decisions` migration breaks Slack flow | Med | High | Phase 0 ships migration empty; Slack flow keeps hitting existing `apply_dream`. Phase 1 wires Slack `Approve` to bulk-stamp claims AFTER e2e test of new flow. |
 | `ccusage` CLI absent on pei | Low | Med | `scripts/install.sh` installs ccusage globally; fallback `lib/jsonl.ts` parses directly. |
-| Bun + better-sqlite3 ABI mismatch | Low | High | Pin Bun 1.2+ + Node 22 same as canon-bot; reuse its working install pattern. |
+| ~~Bun + better-sqlite3 ABI mismatch~~ Realized 2026-05-12 — Bun lacks better-sqlite3 support (`oven-sh/bun#4290`). | Realized | High | **Mitigated**: pivoted production runtime to Node 22; Bun stays for install + dev only. Captured in §14 decision 6. |
+| Ubuntu jammy ships SQLite 3.51 (WAL bug window) | Realized | Med | **Mitigated**: pei rebuilt SQLite to 3.53.1 from source. See `infra/pei/README.md` §SQLite. |
 | Next.js standalone deploy unfamiliar | Low | Med | midday-ai/v1 ships a working Bun + Next.js + standalone systemd recipe — crib it. |
 | Profile generalization premature | Low | Low | `profile_id` baked in v0.1; switcher inert. Cheapest hedge. |
 | Luma preset drifts from current shadcn | Low | Low | Pin via `shadcn/create` snapshot at Phase 0; re-pull on next PRD iteration. |
@@ -721,7 +735,7 @@ Used for per-claim mutations (faster than route handlers for form-driven actions
 **2026-05-12 (revised, post-Luma directive):**
 
 5. **Stack: Full Next.js 16 + shadcn Luma preset (Radix).** Reverses #1. Rationale: true Luma fidelity requires Radix React; Basecoat is Luma-flavored at best. Matches KULT Pro stack — maximum pattern reuse. FastAPI/lwiki_ui retires at end of Phase 1.
-6. **Runtime: Bun 1.2+** (matches refactor-canon-bot stack pin); Node 22 ABI for native modules.
+6. **Runtime: Node 22+ in production; Bun 1.3.13+ for install + dev only.** Reopened 2026-05-12 during Phase 0 execute: Bun lacks `better-sqlite3` ABI support (`oven-sh/bun#4290`); `bun:sqlite` bundles SQLite 3.51.2 (inside WAL bug window). `better-sqlite3@12.9.0` bundles 3.53.0 patched. Ubuntu jammy on pei rebuilt to SQLite 3.53.1 from source for the system CLI + Python `sqlite3` module.
 7. **Auth: Tailscale-User-Login only for v0.1.** Public domain via Ionos + Caddy + Keycloak deferred to v0.2+ when canon multi-user demand arrives. Caddy installed in Phase 0 to position us for later.
 8. **GitHub mirror: faro/ subtree only.** Push to `github.com/lucaramirezo/faro` from GitLab CI on every main push. `memory/`, `raw/`, `wiki/` NEVER cross to GitHub.
 9. **Naming: faro v0.1**, not v1.0. Cuando se semantiza el versionado real (post-Phase-1 launch), bumps to v1.0.

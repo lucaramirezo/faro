@@ -28,9 +28,16 @@ export function getProfile(slug?: string): Profile {
   if (env.FARO_AGENT_ROOT) {
     parsed.agent_root = env.FARO_AGENT_ROOT;
   }
+  if (env.FARO_JSONL_ROOT) {
+    parsed.jsonl_root = env.FARO_JSONL_ROOT;
+  }
   return parsed;
 }
 
 export function resolveStateDbPath(p: Profile): string {
   return env.FARO_STATE_DB ?? join(p.agent_root, p.state_db);
+}
+
+export function resolveJsonlRoot(p: Profile): string {
+  return env.FARO_JSONL_ROOT ?? p.jsonl_root;
 }

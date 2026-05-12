@@ -687,7 +687,7 @@ Used for per-claim mutations (faster than route handlers for form-driven actions
 - [ ] `/weekly-status` artifact-generator skill.
 - [ ] Dream Review page toggles between MD report and HTML artifact when both exist.
 
-**Phase gate:** draft `faro/.claude/skills/artifacts/DESIGN.md` first.
+**Phase gate:** draft `faro/.claude/skills/artifacts/DESIGN.md` first (do exploration with subagents on this before, best practices for anthropic, some examples, google stitvh and similar info that may be relevant).
 
 ---
 

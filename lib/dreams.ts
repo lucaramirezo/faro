@@ -155,7 +155,9 @@ export async function finalizeDream({
     throw new Error(`Refusing to finalize run_id=${runId}: no claims in approved/tweaked state`);
   }
 
-  const absDraftDir = join(profile.agent_root, row.draft_dir);
+  const absDraftDir = row.draft_dir.startsWith("/")
+    ? row.draft_dir
+    : join(profile.agent_root, row.draft_dir);
   const result = await applyDream({ draftDir: absDraftDir });
 
   db.prepare(

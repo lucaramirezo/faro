@@ -25,7 +25,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ runId: 
       return new NextResponse(`run not found: ${runId}`, { status: 404 });
     }
     const profile = getProfile();
-    const draftDir = assertUnder(join(profile.agent_root, run.draft_dir), profile.agent_root);
+    const draftPath = run.draft_dir.startsWith("/")
+      ? run.draft_dir
+      : join(profile.agent_root, run.draft_dir);
+    const draftDir = assertUnder(draftPath, profile.agent_root);
     const currentMemoryPath = join(profile.agent_root, "memory", "memory.md");
     const nextMemoryPath = join(draftDir, "memory.md.next");
     const baseMemoryPath = join(draftDir, "memory.md");

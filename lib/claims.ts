@@ -71,7 +71,10 @@ export async function readClaimsJsonForRun(runId: string): Promise<{
   if (!relDraft) {
     throw new Error(`No pipeline_runs row for run_id=${runId}`);
   }
-  const resolved = assertUnder(join(profile.agent_root, relDraft), profile.agent_root);
+  // pipeline_runs.draft_dir can be stored as absolute (e.g. dreams pipeline)
+  // or relative (some legacy rows). Resolve safely either way.
+  const draftPath = relDraft.startsWith("/") ? relDraft : join(profile.agent_root, relDraft);
+  const resolved = assertUnder(draftPath, profile.agent_root);
   const claimsPath = join(resolved, "claims.json");
   const raw = await readFile(claimsPath, "utf8");
   const parsed = ClaimsFileSchema.parse(JSON.parse(raw));

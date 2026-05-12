@@ -1,0 +1,11 @@
+profile: lwiki
+display_name: "lwiki — Luca's second brain"
+agent_root: /home/luca/projects/lwiki
+memory_dir: memory
+state_db: slack_agent/runs/state.db
+jsonl_root: /home/luca/.claude/projects/-home-luca-projects-lwiki
+heartbeat_path: memory/heartbeat.md
+slack_workspace: TRL
+owner_logins:
+  - lucaramirezol@gmail.com
+status: active

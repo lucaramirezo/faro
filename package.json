@@ -10,7 +10,7 @@
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "check-types": "tsc --noEmit",
-    "migrate": "node --experimental-strip-types scripts/migrate.ts"
+    "migrate": "node --env-file-if-exists=.env.local --experimental-strip-types scripts/migrate.ts"
   },
   "dependencies": {
     "@hugeicons/core-free-icons": "^4.1.3",

@@ -39,11 +39,18 @@ const SCHEMA_CLAIM_DECISIONS = `
 
 function ensureSchema(db: Database.Database): void {
   db.exec(SCHEMA_CLAIM_DECISIONS);
-  ensureProfileIdColumn(db, "pipeline_runs");
+  ensureColumn(db, "pipeline_runs", "profile_id", "TEXT NOT NULL DEFAULT 'lwiki'");
+  ensureColumn(db, "claim_decisions", "parent_claim_id", "TEXT");
+  ensureColumn(db, "claim_decisions", "superseded_at", "TIMESTAMP");
+  ensureColumn(db, "claim_decisions", "section_path_canonical", "TEXT");
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_claim_decisions_parent ON claim_decisions(parent_claim_id)",
+  );
 }
 
-function ensureProfileIdColumn(db: Database.Database, table: string): void {
+function ensureColumn(db: Database.Database, table: string, column: string, type: string): void {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
-  if (cols.some((c) => c.name === "profile_id")) return;
-  db.exec(`ALTER TABLE ${table} ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'lwiki'`);
+  if (cols.length === 0) return;
+  if (cols.some((c) => c.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
 }

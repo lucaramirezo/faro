@@ -49,19 +49,33 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_claim_decisions_status ON claim_decisions(status, profile_id);
 `);
 
-const cols = db.prepare("PRAGMA table_info(pipeline_runs)").all() as { name: string }[];
-if (cols.length === 0) {
-  console.warn(
-    "[faro] migrate: pipeline_runs table does not exist — skipping ALTER. " +
-      "This is expected on a fresh DB but unexpected on the real state.db. " +
-      "Verify FARO_STATE_DB / FARO_AGENT_ROOT point at the slack_agent's state.db.",
-  );
-} else if (!cols.some((c) => c.name === "profile_id")) {
-  db.exec("ALTER TABLE pipeline_runs ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'lwiki'");
-  console.log("[faro] migrate: added pipeline_runs.profile_id");
-} else {
-  console.log("[faro] migrate: pipeline_runs.profile_id already present");
+function ensureColumn(table: string, column: string, type: string): void {
+  const tCols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (tCols.length === 0) {
+    console.warn(
+      `[faro] migrate: ${table} table does not exist — skipping ALTER for ${column}. ` +
+        "This is expected on a fresh DB but unexpected on the real state.db. " +
+        "Verify FARO_STATE_DB / FARO_AGENT_ROOT point at the slack_agent's state.db.",
+    );
+    return;
+  }
+  if (tCols.some((c) => c.name === column)) {
+    console.log(`[faro] migrate: ${table}.${column} already present`);
+    return;
+  }
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  console.log(`[faro] migrate: added ${table}.${column}`);
 }
+
+ensureColumn("pipeline_runs", "profile_id", "TEXT NOT NULL DEFAULT 'lwiki'");
+ensureColumn("claim_decisions", "parent_claim_id", "TEXT");
+ensureColumn("claim_decisions", "superseded_at", "TIMESTAMP");
+ensureColumn("claim_decisions", "section_path_canonical", "TEXT");
+
+db.exec(
+  "CREATE INDEX IF NOT EXISTS idx_claim_decisions_parent ON claim_decisions(parent_claim_id)",
+);
+console.log("[faro] migrate: ensured idx_claim_decisions_parent");
 
 const rows = db.prepare("SELECT COUNT(*) as n FROM claim_decisions").get() as { n: number };
 console.log(`[faro] migrate: claim_decisions has ${rows.n} rows`);

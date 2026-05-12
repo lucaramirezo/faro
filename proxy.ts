@@ -34,9 +34,7 @@ export function proxy(req: NextRequest) {
   if (xff) {
     const originator = xff.split(",")[0]?.trim() ?? "";
     if (originator && !inTailnet(originator)) {
-      console.warn(
-        `[faro] auth: rejected ${path} (non-tailnet X-Forwarded-For=${originator})`,
-      );
+      console.warn(`[faro] auth: rejected ${path} (non-tailnet X-Forwarded-For=${originator})`);
       return new NextResponse("forbidden", { status: 403 });
     }
   }

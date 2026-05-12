@@ -23,6 +23,7 @@ const EnvSchema = z.object({
   FARO_JSONL_ROOT: z.string().optional(),
   FARO_CCUSAGE_PATH: z.string().default("ccusage"),
   FARO_OPENROUTER_API_KEY: z.string().optional(),
+  FARO_OPENROUTER_API_KEY_FILE: z.string().optional(),
   FARO_PRICING_REFRESH_HOURS: z.coerce.number().default(168),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
 });
@@ -73,4 +74,43 @@ export function requireOwnerLogins(): string[] {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+/**
+ * Returns the OpenRouter API key or throws. Mirror of ``requireOwnerLogins``.
+ * Used by the /cost OpenRouter card — call sites should catch the throw and
+ * render a "key not configured" placeholder instead of failing the whole page.
+ *
+ * Resolution order:
+ *  1. ``FARO_OPENROUTER_API_KEY`` env var (laptop ``.env.local``)
+ *  2. ``FARO_OPENROUTER_API_KEY_FILE`` path (pei systemd ``LoadCredential=``)
+ *  3. ``$CREDENTIALS_DIRECTORY/openrouter`` (pei systemd fallback)
+ */
+export function requireOpenRouterKey(): string {
+  const e = loadEnv();
+  const direct = e.FARO_OPENROUTER_API_KEY?.trim() ?? "";
+  if (direct) return direct;
+  const fromFile = readKeyFile(e.FARO_OPENROUTER_API_KEY_FILE);
+  if (fromFile) return fromFile;
+  const credDir = process.env.CREDENTIALS_DIRECTORY?.trim();
+  if (credDir) {
+    const fromCred = readKeyFile(`${credDir.replace(/\/$/, "")}/openrouter`);
+    if (fromCred) return fromCred;
+  }
+  throw new Error(
+    "FARO_OPENROUTER_API_KEY (or _FILE) env var is required but unset. " +
+      "Set it in .env.local (laptop) or systemd LoadCredential (pei).",
+  );
+}
+
+function readKeyFile(path: string | undefined): string {
+  if (!path) return "";
+  try {
+    // Lazy require to keep `lib/env.ts` import-cheap on the client. This file
+    // is only imported from server modules in practice, but the guard is free.
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    return readFileSync(path, "utf8").trim();
+  } catch {
+    return "";
+  }
 }

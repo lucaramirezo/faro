@@ -195,20 +195,22 @@ export function bulkSetClaimStatusForCategory({
   category,
   status,
   decidedBy,
+  fromStatus = "pending",
 }: {
   runId: string;
   category: ClaimCategory;
   status: ClaimStatus;
   decidedBy: string;
+  fromStatus?: ClaimStatus;
 }): number {
   const db = getDb();
   const info = db
     .prepare(
       `UPDATE claim_decisions
           SET status = ?, decided_at = CURRENT_TIMESTAMP, decided_by = ?
-        WHERE run_id = ? AND category = ? AND status = 'pending'`,
+        WHERE run_id = ? AND category = ? AND status = ?`,
     )
-    .run(status, decidedBy, runId, category);
+    .run(status, decidedBy, runId, category, fromStatus);
   return info.changes;
 }
 

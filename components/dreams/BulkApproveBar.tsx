@@ -1,8 +1,8 @@
 "use client";
 
-import { useTransition } from "react";
+import { startTransition, useTransition } from "react";
 import { toast } from "sonner";
-import { bulkApproveCategoryAction } from "@/app/actions/claims";
+import { bulkApproveCategoryAction, revertClaimsByCategoryAction } from "@/app/actions/claims";
 import { Button } from "@/components/ui/button";
 import type { ClaimCategory } from "@/lib/claims-types";
 
@@ -20,18 +20,36 @@ const CATEGORY_HEADER: Record<ClaimCategory, string> = {
 };
 
 export function BulkApproveBar({ runId, category, pendingCount }: BulkApproveBarProps) {
-  const [pending, startTransition] = useTransition();
+  const [pending, beginTransition] = useTransition();
 
   const onClick = () => {
     const fd = new FormData();
     fd.set("runId", runId);
     fd.set("category", category);
     fd.set("verb", "approved");
-    startTransition(async () => {
+    beginTransition(async () => {
       try {
         const n = await bulkApproveCategoryAction(fd);
         toast.success(`Approved ${n} ${category} claim${n === 1 ? "" : "s"}`, {
           duration: 10_000,
+          action: {
+            label: "Undo",
+            onClick: () => {
+              const revertFd = new FormData();
+              revertFd.set("runId", runId);
+              revertFd.set("category", category);
+              startTransition(async () => {
+                try {
+                  const reverted = await revertClaimsByCategoryAction(revertFd);
+                  toast.success(
+                    `Reverted ${reverted} ${category} claim${reverted === 1 ? "" : "s"} to pending`,
+                  );
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Undo failed");
+                }
+              });
+            },
+          },
         });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Bulk approve failed");

@@ -20,6 +20,16 @@ const COMMANDS: Array<{
   { id: "home", label: "Go to Home", hint: "/home", href: "/home" },
   { id: "cost", label: "Go to Cost", hint: "/cost", href: "/cost" },
   { id: "dreams", label: "Go to Dreams", hint: "/dreams", href: "/dreams" },
+  { id: "skills", label: "Go to Skills", hint: "/skills", href: "/skills" },
+  { id: "memory", label: "Go to Memory", hint: "/memory", href: "/memory" },
+  {
+    id: "integrations",
+    label: "Go to Integrations",
+    hint: "/integrations",
+    href: "/integrations",
+  },
+  { id: "scheduled", label: "Go to Scheduled", hint: "/scheduled", href: "/scheduled" },
+  { id: "settings", label: "Open Settings", hint: "/settings", href: "/settings" },
   { id: "profile", label: "Open profile", hint: "lwiki", href: "/home" },
 ];
 

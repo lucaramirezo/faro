@@ -1,8 +1,32 @@
+import crypto from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { requireOwnerLogins } from "@/lib/env";
 
 const EXEMPT_PREFIXES = ["/api/health", "/favicon.ico", "/_next/", "/static/"];
 const IDENTITY_HEADER_CANDIDATES = ["tailscale-user-login", "tailscale-login"];
+
+function buildCspWithNonce(nonce: string): string {
+  // script-src: nonce + strict-dynamic. The nonce lets framework-emitted
+  // scripts execute; strict-dynamic lets those scripts load further chunks
+  // without an explicit allowlist. style-src keeps 'unsafe-inline' as a
+  // Phase 2.1 residual — Tremor / Sonner / Radix all inject inline styles.
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join("; ");
+}
+
+function attachNonce(response: NextResponse, nonce: string): NextResponse {
+  response.headers.set("Content-Security-Policy", buildCspWithNonce(nonce));
+  return response;
+}
 
 // Tailnet CIDRs per https://tailscale.com/kb/1015/100.x-addresses
 // 100.64.0.0/10 covers 100.64.0.0 – 100.127.255.255 (IPv4)
@@ -20,8 +44,9 @@ function inTailnet(rawIp: string): boolean {
 
 export function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
+  const nonce = crypto.randomBytes(16).toString("base64");
   if (EXEMPT_PREFIXES.some((p) => path === p || path.startsWith(p))) {
-    return NextResponse.next();
+    return attachNonce(NextResponse.next(), nonce);
   }
 
   // Dev-only convenience: when NODE_ENV !== production AND no identity
@@ -39,8 +64,9 @@ export function proxy(req: NextRequest) {
     if (owners.length > 0) {
       const requestHeaders = new Headers(req.headers);
       requestHeaders.set("x-faro-login", owners[0]);
+      requestHeaders.set("x-nonce", nonce);
       console.log(`[faro] auth: dev-mode auto-login as ${owners[0]} for ${path}`);
-      return NextResponse.next({ request: { headers: requestHeaders } });
+      return attachNonce(NextResponse.next({ request: { headers: requestHeaders } }), nonce);
     }
   }
 
@@ -85,7 +111,8 @@ export function proxy(req: NextRequest) {
 
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-faro-login", login);
-  return NextResponse.next({ request: { headers: requestHeaders } });
+  requestHeaders.set("x-nonce", nonce);
+  return attachNonce(NextResponse.next({ request: { headers: requestHeaders } }), nonce);
 }
 
 export const config = {

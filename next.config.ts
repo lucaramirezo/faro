@@ -1,11 +1,13 @@
 import type { NextConfig } from "next";
 
-// Content-Security-Policy for faro. Tight default-src 'self' + minimal allowances
-// for Next.js runtime needs. 'unsafe-inline' on script-src/style-src kept until
-// we wire nonces in Phase 2.
-const CSP = [
+// Content-Security-Policy is now per-request and set by `proxy.ts` with a
+// per-request nonce + `strict-dynamic`. We keep a default header here as a
+// belt-and-braces fallback for any code path that bypasses the proxy (none
+// today). `style-src 'unsafe-inline'` remains a v0.1 residual: Tremor, Sonner,
+// and Radix all inject inline styles. Tighten in Phase 2.1.
+const FALLBACK_CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  "script-src 'self' 'strict-dynamic'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
@@ -16,7 +18,7 @@ const CSP = [
 ].join("; ");
 
 const SECURITY_HEADERS = [
-  { key: "Content-Security-Policy", value: CSP },
+  { key: "Content-Security-Policy", value: FALLBACK_CSP },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },

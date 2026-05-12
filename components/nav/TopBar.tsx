@@ -1,12 +1,16 @@
 import {
   Activity01Icon,
   Brain02Icon,
+  Calendar01Icon,
   CoinsDollarIcon,
   Database01Icon,
   Home01Icon,
   PlugSocketIcon,
+  Settings01Icon,
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import Link from "next/link";
 import { NavLink } from "@/components/nav/NavLink";
 import { ProfileSlug } from "@/components/nav/ProfileSlug";
 import { Kbd } from "@/components/ui/kbd";
@@ -15,14 +19,13 @@ const NAV_ITEMS = [
   { href: "/home", label: "Home", icon: Home01Icon },
   { href: "/cost", label: "Cost", icon: CoinsDollarIcon },
   { href: "/dreams", label: "Dreams", icon: Brain02Icon },
-] as const;
-
-const DISABLED_ITEMS = [
   { href: "/skills", label: "Skills", icon: SparklesIcon },
   { href: "/memory", label: "Memory", icon: Database01Icon },
   { href: "/integrations", label: "Integrations", icon: PlugSocketIcon },
-  { href: "/activity", label: "Activity", icon: Activity01Icon },
+  { href: "/scheduled", label: "Scheduled", icon: Calendar01Icon },
 ] as const;
+
+const DISABLED_ITEMS = [{ href: "/activity", label: "Activity", icon: Activity01Icon }] as const;
 
 export function TopBar() {
   return (
@@ -39,6 +42,13 @@ export function TopBar() {
           ))}
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/settings"
+            aria-label="Settings"
+            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+          >
+            <HugeiconsIcon icon={Settings01Icon} size={16} strokeWidth={2} />
+          </Link>
           <Kbd className="text-xs">⌘K</Kbd>
           <span className="text-xs text-muted-foreground">v0.1</span>
         </div>

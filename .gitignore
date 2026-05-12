@@ -48,3 +48,8 @@ next-env.d.ts
 
 # local
 *.local
+
+# faro sqlite databases (skills.db etc — auto-generated, never commit)
+/data/*.db
+/data/*.db-shm
+/data/*.db-wal

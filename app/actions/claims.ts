@@ -93,6 +93,31 @@ export async function bulkApproveCategoryAction(formData: FormData): Promise<num
   return count;
 }
 
+const RevertSchema = z.object({
+  runId: z.string().min(1),
+  category: z.enum(CLAIM_CATEGORIES),
+});
+
+export async function revertClaimsByCategoryAction(formData: FormData): Promise<number> {
+  const parsed = RevertSchema.safeParse({
+    runId: formData.get("runId"),
+    category: formData.get("category"),
+  });
+  if (!parsed.success) {
+    throw new Error(`revertClaimsByCategoryAction: invalid form: ${parsed.error.message}`);
+  }
+  const decidedBy = await readDecidedBy();
+  const count = bulkSetClaimStatusForCategory({
+    runId: parsed.data.runId,
+    category: parsed.data.category,
+    status: "pending",
+    fromStatus: "approved",
+    decidedBy,
+  });
+  revalidatePath(`/dreams/${parsed.data.runId}`);
+  return count;
+}
+
 const FinalizeSchema = z.object({
   runId: z.string().min(1),
   decisionToken: z.string().min(1),

@@ -1,5 +1,12 @@
 "use client";
 
+import {
+  Cancel01Icon,
+  Edit02Icon,
+  MoreHorizontalIcon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { motion } from "motion/react";
 import { type ReactNode, useTransition } from "react";
 import { toast } from "sonner";
@@ -74,8 +81,9 @@ export function ClientCardShell({
               onClick={() => decide("approved")}
               disabled={pending}
               title="Approve (A)"
+              aria-label="Approve"
             >
-              A
+              <HugeiconsIcon icon={Tick02Icon} size={14} strokeWidth={2.5} />
             </Button>
             <Button
               size="sm"
@@ -83,8 +91,9 @@ export function ClientCardShell({
               onClick={() => onOpenTweak(claim)}
               disabled={pending}
               title="Tweak (T)"
+              aria-label="Tweak"
             >
-              T
+              <HugeiconsIcon icon={Edit02Icon} size={14} strokeWidth={2} />
             </Button>
             <Button
               size="sm"
@@ -92,13 +101,20 @@ export function ClientCardShell({
               onClick={() => decide("denied")}
               disabled={pending}
               title="Deny (D)"
+              aria-label="Deny"
             >
-              D
+              <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={2} />
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="ghost" disabled={pending} title="More">
-                  ⋯
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={pending}
+                  title="More"
+                  aria-label="More actions"
+                >
+                  <HugeiconsIcon icon={MoreHorizontalIcon} size={14} strokeWidth={2} />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-40">

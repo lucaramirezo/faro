@@ -175,6 +175,14 @@ async function fetchActiveBlock(): Promise<Block | null> {
   return parsed.data.blocks.find((b) => b.isActive) ?? null;
 }
 
+async function fetchRecentBlocks(): Promise<Block[]> {
+  const data = await runCcusage("blocks");
+  if (!data) return [];
+  const parsed = BlocksResponseSchema.safeParse(data);
+  if (!parsed.success) return [];
+  return parsed.data.blocks;
+}
+
 async function fetchDaily(profile: Profile): Promise<DailyEntry[]> {
   const data = await runCcusage("daily");
   if (!data) {
@@ -206,6 +214,32 @@ export const getActiveBlock = unstable_cache(
   ["faro:ccusage:block"],
   { revalidate: 30, tags: ["faro:ccusage"] },
 );
+
+export const getRecentBlocks = unstable_cache(
+  async (): Promise<Block[]> => fetchRecentBlocks(),
+  ["faro:ccusage:recent-blocks"],
+  { revalidate: 30, tags: ["faro:ccusage"] },
+);
+
+/**
+ * Approximate "hours active this week" by counting non-gap blocks whose
+ * window overlaps the last 7 days. Each ccusage block is a 5-hour window
+ * opened by a message — the closest first-party proxy for Anthropic's
+ * weekly hour cap. Returns null if no block data is available.
+ */
+export async function getWeeklyActiveHours(): Promise<number | null> {
+  const blocks = await getRecentBlocks();
+  if (blocks.length === 0) return null;
+  const weekAgoMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  let active = 0;
+  for (const b of blocks) {
+    if (b.isGap) continue;
+    const start = Date.parse(b.startTime);
+    if (Number.isNaN(start) || start < weekAgoMs) continue;
+    active += 1;
+  }
+  return active * 5;
+}
 
 export const getDaily = unstable_cache(
   async (): Promise<DailyEntry[]> => fetchDaily(getProfile()),

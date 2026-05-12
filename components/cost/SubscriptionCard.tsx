@@ -1,3 +1,4 @@
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 
@@ -9,6 +10,7 @@ export interface SubscriptionCardProps {
   secondary?: Array<{ label: string; value: string }>;
   status?: "live" | "manual" | "unset";
   hint?: string;
+  icon?: IconSvgElement;
 }
 
 const STATUS_BADGE: Record<NonNullable<SubscriptionCardProps["status"]>, string> = {
@@ -34,17 +36,25 @@ export function SubscriptionCard({
   secondary = [],
   status = "live",
   hint,
+  icon,
 }: SubscriptionCardProps) {
   return (
     <Card className="p-4 space-y-3">
       <div className="flex items-start justify-between gap-2">
-        <div>
-          <h3 className="text-sm font-semibold tracking-tight">{name}</h3>
-          <p className="text-xs text-muted-foreground tabular-nums">
-            {monthlyUsd !== null ? `${fmtUsd(monthlyUsd)} / mo` : "no monthly fee"}
-          </p>
+        <div className="flex items-start gap-2.5 min-w-0">
+          {icon && (
+            <span className="mt-0.5 rounded-md bg-muted/40 p-1.5">
+              <HugeiconsIcon icon={icon} size={16} strokeWidth={2} className="text-foreground/80" />
+            </span>
+          )}
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold tracking-tight truncate">{name}</h3>
+            <p className="text-xs text-muted-foreground tabular-nums">
+              {monthlyUsd !== null ? `${fmtUsd(monthlyUsd)} / mo` : "no monthly fee"}
+            </p>
+          </div>
         </div>
-        <div className="flex flex-col gap-1 items-end">
+        <div className="flex flex-col gap-1 items-end shrink-0">
           {badge && (
             <Badge variant="outline" className="text-xs">
               {badge}

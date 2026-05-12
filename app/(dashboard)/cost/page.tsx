@@ -1,7 +1,15 @@
+import {
+  BotIcon,
+  Brain02Icon,
+  CloudIcon,
+  Comet01Icon,
+  CpuIcon,
+  GithubIcon,
+} from "@hugeicons/core-free-icons";
 import { AuthModePill } from "@/components/cost/AuthModePill";
 import { PlanLimits } from "@/components/cost/PlanLimits";
 import { SubscriptionCard } from "@/components/cost/SubscriptionCard";
-import { getActiveBlock, getDaily } from "@/lib/ccusage";
+import { getActiveBlock, getDaily, getWeeklyActiveHours } from "@/lib/ccusage";
 import { requireOpenRouterKey } from "@/lib/env";
 import { FALLBACK_PRICING, getPricing } from "@/lib/pricing";
 
@@ -58,9 +66,10 @@ async function fetchOpenRouterCredits(): Promise<
 }
 
 export default async function CostPage() {
-  const [daily, activeBlock, pricing, orCredits] = await Promise.all([
+  const [daily, activeBlock, weeklyHours, pricing, orCredits] = await Promise.all([
     getDaily(),
     getActiveBlock(),
+    getWeeklyActiveHours(),
     getPricing(),
     fetchOpenRouterCredits(),
   ]);
@@ -106,6 +115,7 @@ export default async function CostPage() {
       <section className="grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
         <SubscriptionCard
           name="Claude Max"
+          icon={Brain02Icon}
           monthlyUsd={CLAUDE_MAX_MONTHLY_USD}
           badge="OAuth · Max"
           status="live"
@@ -123,6 +133,7 @@ export default async function CostPage() {
         />
         <SubscriptionCard
           name="OpenRouter"
+          icon={CloudIcon}
           monthlyUsd={null}
           badge="Pay-as-you-go"
           status={orCredits.ok ? "live" : "unset"}
@@ -158,6 +169,7 @@ export default async function CostPage() {
         />
         <SubscriptionCard
           name="ChatGPT Plus"
+          icon={BotIcon}
           monthlyUsd={20}
           badge="manual"
           status="manual"
@@ -165,6 +177,7 @@ export default async function CostPage() {
         />
         <SubscriptionCard
           name="Gemini Advanced"
+          icon={Comet01Icon}
           monthlyUsd={20}
           badge="manual"
           status="manual"
@@ -172,6 +185,7 @@ export default async function CostPage() {
         />
         <SubscriptionCard
           name="GitHub Copilot"
+          icon={GithubIcon}
           monthlyUsd={10}
           badge="manual"
           status="manual"
@@ -183,6 +197,8 @@ export default async function CostPage() {
           fiveHourBlockTokens={activeBlock?.totalTokens}
           fiveHourBlockProjectedTokens={activeBlock?.projection?.totalTokens}
           fiveHourBlockRemainingMinutes={activeBlock?.projection?.remainingMinutes}
+          weeklyMinutesUsed={weeklyHours !== null ? weeklyHours * 60 : undefined}
+          weeklyMinutesCapLow={240 * 60}
         />
       </section>
     </div>

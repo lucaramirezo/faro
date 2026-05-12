@@ -1,3 +1,5 @@
+import { Clock01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -19,7 +21,15 @@ function statusVariant(s: string): "default" | "secondary" | "destructive" | "ou
 export function RecentDreams({ rows }: { rows: RecentDreamRow[] }) {
   return (
     <Card className="p-4">
-      <h2 className="text-sm font-semibold mb-3">Recent dreams</h2>
+      <h2 className="text-sm font-semibold mb-3 inline-flex items-center gap-2">
+        <HugeiconsIcon
+          icon={Clock01Icon}
+          size={16}
+          strokeWidth={2}
+          className="text-muted-foreground"
+        />
+        Recent dreams
+      </h2>
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">No dream runs yet.</p>
       ) : (

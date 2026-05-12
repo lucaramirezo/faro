@@ -1,5 +1,7 @@
 "use client";
 
+import { CoinsSwapIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -42,7 +44,8 @@ export function SubsidyWedge({ apiEquivalentUsd, subscriptionUsd }: SubsidyWedge
     <Card className="p-4">
       <div className="flex items-start justify-between gap-2">
         <div className="space-y-1">
-          <p className="text-xs text-muted-foreground uppercase tracking-wide">
+          <p className="text-xs text-muted-foreground uppercase tracking-wide inline-flex items-center gap-1.5">
+            <HugeiconsIcon icon={CoinsSwapIcon} size={12} strokeWidth={2} className="opacity-70" />
             Subsidy (this week)
           </p>
           {mode === "delta" ? (

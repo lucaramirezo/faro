@@ -1,3 +1,5 @@
+import { GitMergeIcon, Scissor01Icon, SparklesIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import { Badge } from "@/components/ui/badge";
 import type { ClaimRow } from "@/lib/claims-types";
 
@@ -8,6 +10,13 @@ const CATEGORY_BADGE: Record<string, string> = {
   surfaced: "bg-violet-500/20 text-violet-300",
 };
 
+const CATEGORY_ICON: Record<string, IconSvgElement> = {
+  merged: GitMergeIcon,
+  resolved: Tick02Icon,
+  pruned: Scissor01Icon,
+  surfaced: SparklesIcon,
+};
+
 export function ClaimCard({ claim }: { claim: ClaimRow }) {
   const evidenceFirst = claim.evidence[0];
   const evidencePath = evidenceFirst?.path;
@@ -15,7 +24,13 @@ export function ClaimCard({ claim }: { claim: ClaimRow }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-xs">
-        <Badge variant="outline" className={`${CATEGORY_BADGE[claim.category] ?? ""} border-0`}>
+        <Badge
+          variant="outline"
+          className={`${CATEGORY_BADGE[claim.category] ?? ""} border-0 gap-1`}
+        >
+          {CATEGORY_ICON[claim.category] && (
+            <HugeiconsIcon icon={CATEGORY_ICON[claim.category]} size={10} strokeWidth={2.5} />
+          )}
           {claim.category}
         </Badge>
         <span className="text-muted-foreground">{claim.section_path}</span>

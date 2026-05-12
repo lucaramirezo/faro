@@ -1,5 +1,6 @@
 "use client";
 
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import { SparkAreaChart } from "@tremor/react";
 import { Card } from "@/components/ui/card";
 
@@ -9,6 +10,7 @@ export interface KpiCardProps {
   trendLabel?: string;
   sparkData?: Array<{ x: string | number; v: number }>;
   tone?: "neutral" | "good" | "warn" | "bad";
+  icon?: IconSvgElement;
 }
 
 const TONE_CLASS: Record<NonNullable<KpiCardProps["tone"]>, string> = {
@@ -24,13 +26,17 @@ export function KpiCard({
   trendLabel,
   sparkData = [],
   tone = "neutral",
+  icon,
 }: KpiCardProps) {
   const hasSpark = sparkData.length > 1;
   return (
     <Card className="p-4">
       <div className="flex items-baseline justify-between gap-2">
         <div className="space-y-1">
-          <p className="text-xs text-muted-foreground uppercase tracking-wide">{label}</p>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide inline-flex items-center gap-1.5">
+            {icon && <HugeiconsIcon icon={icon} size={12} strokeWidth={2} className="opacity-70" />}
+            {label}
+          </p>
           <p className={`text-2xl font-semibold tabular-nums ${TONE_CLASS[tone]}`}>{value}</p>
           {trendLabel && <p className="text-xs text-muted-foreground">{trendLabel}</p>}
         </div>

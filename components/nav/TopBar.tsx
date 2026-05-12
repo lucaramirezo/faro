@@ -1,18 +1,27 @@
+import {
+  Activity01Icon,
+  Brain02Icon,
+  CoinsDollarIcon,
+  Database01Icon,
+  Home01Icon,
+  PlugSocketIcon,
+  SparklesIcon,
+} from "@hugeicons/core-free-icons";
 import { NavLink } from "@/components/nav/NavLink";
 import { ProfileSlug } from "@/components/nav/ProfileSlug";
 import { Kbd } from "@/components/ui/kbd";
 
 const NAV_ITEMS = [
-  { href: "/home", label: "Home" },
-  { href: "/cost", label: "Cost" },
-  { href: "/dreams", label: "Dreams" },
+  { href: "/home", label: "Home", icon: Home01Icon },
+  { href: "/cost", label: "Cost", icon: CoinsDollarIcon },
+  { href: "/dreams", label: "Dreams", icon: Brain02Icon },
 ] as const;
 
 const DISABLED_ITEMS = [
-  { href: "/skills", label: "Skills" },
-  { href: "/memory", label: "Memory" },
-  { href: "/integrations", label: "Integrations" },
-  { href: "/activity", label: "Activity" },
+  { href: "/skills", label: "Skills", icon: SparklesIcon },
+  { href: "/memory", label: "Memory", icon: Database01Icon },
+  { href: "/integrations", label: "Integrations", icon: PlugSocketIcon },
+  { href: "/activity", label: "Activity", icon: Activity01Icon },
 ] as const;
 
 export function TopBar() {
@@ -22,11 +31,11 @@ export function TopBar() {
         <ProfileSlug />
         <div className="flex items-center gap-1">
           {NAV_ITEMS.map((it) => (
-            <NavLink key={it.href} href={it.href} label={it.label} />
+            <NavLink key={it.href} href={it.href} label={it.label} icon={it.icon} />
           ))}
           <span className="mx-2 text-muted-foreground/30">·</span>
           {DISABLED_ITEMS.map((it) => (
-            <NavLink key={it.href} href={it.href} label={it.label} disabled />
+            <NavLink key={it.href} href={it.href} label={it.label} icon={it.icon} disabled />
           ))}
         </div>
         <div className="flex items-center gap-2">

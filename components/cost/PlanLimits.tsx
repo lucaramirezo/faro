@@ -78,13 +78,32 @@ export function PlanLimits({
         <div className="flex items-center justify-between">
           <p className="text-xs text-muted-foreground uppercase tracking-wide">Weekly window</p>
           <p className="text-xs tabular-nums">
-            {weeklyMinutesUsed !== undefined ? `${Math.round(weeklyMinutesUsed / 60)}h used` : "—"}
+            {weeklyMinutesUsed !== undefined ? (
+              `${Math.round(weeklyMinutesUsed / 60)}h of ~${
+                weeklyMinutesCapLow ? Math.round(weeklyMinutesCapLow / 60) : "?"
+              }h–480h`
+            ) : (
+              <span className="text-muted-foreground/70">data pending</span>
+            )}
           </p>
         </div>
         <div className="h-2 rounded-full bg-secondary/30 overflow-hidden">
-          <div className="h-full bg-emerald-500/70" style={{ width: `${weeklyLowPct}%` }} />
+          <div
+            className={`h-full transition-all ${
+              weeklyLowPct > 80
+                ? "bg-rose-500/70"
+                : weeklyLowPct > 60
+                  ? "bg-amber-500/70"
+                  : "bg-emerald-500/70"
+            }`}
+            style={{ width: `${weeklyLowPct}%` }}
+          />
         </div>
         <p className="text-[11px] text-muted-foreground leading-snug">{WEEKLY_CAP_VERBATIM}</p>
+        <p className="text-[10px] text-muted-foreground/70 leading-snug">
+          Hours estimate counts non-gap 5h blocks in the last 7 days × 5h. Approximate proxy —
+          Anthropic doesn't publish hour-equivalent token usage.
+        </p>
       </div>
     </Card>
   );

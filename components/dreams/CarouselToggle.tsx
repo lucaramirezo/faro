@@ -1,5 +1,7 @@
 "use client";
 
+import { Layers01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -13,6 +15,7 @@ export function CarouselToggle({ on, onChange }: CarouselToggleProps) {
     <Tooltip>
       <TooltipTrigger asChild>
         <Button variant={on ? "secondary" : "ghost"} size="sm" onClick={() => onChange(!on)}>
+          <HugeiconsIcon icon={Layers01Icon} size={14} strokeWidth={2} />
           {on ? "Carousel · on" : "Carousel · off"}
         </Button>
       </TooltipTrigger>

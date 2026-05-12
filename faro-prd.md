@@ -1,0 +1,792 @@
+# faro — Agent OS Control Center
+
+**Name:** faro (Spanish for *lighthouse*).
+**Version:** v0.1 — initial PRD.
+**Status:** Draft, pending `/plan-feature` on Phase 0.
+**Date:** 2026-05-12
+**Owner:** Luca; co-author: lwiki agent.
+**Location:** `faro/faro-prd.md` (relocated here from repo root as part of Phase 0 scaffolding).
+**Supersedes:** the dream-only scope of [`lwiki_ui/`](../lwiki_ui/) — retired at the end of Phase 1.
+
+---
+
+## 0. Design philosophy
+
+Faro is the **persistent HTML control surface** for every autonomous agent in Luca's stack — starting with [[lwiki]], then generalizing to [[refactor-canon]] and beyond. It is *not* a chat UI, *not* a reimplementation of Claude Code, *not* a SaaS. It is a single-user, Tailnet-only, file-native cockpit that does five things well:
+
+1. **Shows what's happening** — sessions, costs, plan-limits, scheduled tasks, integration health.
+2. **Surfaces what needs human input** — dream review, decision approvals, recommender candidates.
+3. **Inventories what the agent owns** — skills, memory, integrations, knowledge sources.
+4. **Renders artifacts** — links to (or embeds) HTML artifacts the agent produces for one-off rich content per [[the_unreasonable_effectiveness_of_html]].
+5. **Generalizes across agents** — every panel is scoped to the active **profile** (`faro/lwiki`, `faro/refactor-canon`); switcher in the nav.
+
+Core principles:
+
+- **Local-first traceability.** Parse `~/.claude/projects/<slug>/*.jsonl` directly for usage data. Don't proxy through OTEL/Langfuse unless multi-user demand makes it pay. Falls back gracefully if files are absent.
+- **File-state over services.** Every panel reads files first, hits services second. State writes go to the shared [`slack_agent/runs/state.db`](../slack_agent/runs/state.db) (SQLite WAL, already enforced in CLAUDE.md). Faro reads/writes via `better-sqlite3` from Node; Python slack_agent reads/writes via `sqlite3` — WAL guarantees safety.
+- **HTML > Markdown for human-facing rich content.** Persistent panels are React Server Components + shadcn Luma. One-off rich artifacts (dream reports, weekly status, decision retros) are bundled via Anthropic's `web-artifacts-builder` skill and rendered by faro as embedded iframes or full pages.
+- **Partner mode preserved.** Wiki writes are autonomous. Outbound actions and memory mutations require explicit approval — faro is the surface that *captures* the approval, never that bypasses it.
+- **Profile slug + active pill in the nav from v0.1.** Even when `lwiki` is the only profile, `faro/lwiki ● active` ships in v0.1 so the multi-agent generalization at Phase 4 is a data migration, not a UI rewrite.
+- **Perfect-fit architecture over reuse-existing.** Where the existing stack fits (Caddy on pei, shared SQLite WAL with slack_agent, Tailscale Serve, Ionos DNS, GitLab origin), we use it. Where it doesn't (Python+Jinja for a shadcn-Luma dashboard), we don't. **Decision: Full Next.js + shadcn Luma**, not the Hybrid D originally sketched. Rationale: true Luma fidelity needs Radix React; Basecoat is Luma-flavored at best. Luca's stated taste + KULT Pro stack reuse + the dream-card UX needing Framer Motion + Embla + cmdk all push the same direction.
+
+---
+
+## 1. Mission
+
+**Mission statement.** Faro is the lighthouse for Luca's agents: a single, opinionated, beautiful HTML surface that makes autonomous AI activity legible, reviewable, and re-routable without a single Slack scroll.
+
+**Three commitments:**
+
+- **Legible.** A 30-second glance answers: how much have I spent today, what is the agent doing right now, what is waiting on me, is anything failing.
+- **Reviewable.** Every agent-proposed change (memory mutations, drafts, decisions) is reviewable at *claim-level* granularity, not document-level. Per-decision state, bulk operations, defer/needs-info paths.
+- **Re-routable.** When a recommended skill, a new integration, a re-run, or a new agent profile arrives, faro is the surface that captures the action — copy-as-prompt, install-skill, switch-profile.
+
+---
+
+## 2. Target users
+
+| Phase | User | Mode | Auth |
+|---|---|---|---|
+| v0.1 | Luca alone | single-user, Tailnet-only | `Tailscale-User-Login` header allowlist |
+| v0.2 | Luca + Duo + Marc on `refactor-canon` profile | per-profile owner-list; `lwiki` stays single-user | same header, per-profile ACL — OR Caddy+Keycloak if public domain demanded |
+| Future | multi-tenant SaaS? | out of scope |
+
+Technical comfort: high. CLI-comfortable, accepts terse copy, expects keyboard-first interactions.
+
+**Auth decision (2026-05-12):** Tailscale-only for v0.1. Caddy + Ionos domain + Keycloak deferred until canon multi-user demand arrives — adding them now is half-day of work with zero benefit for single-user.
+
+---
+
+## 3. MVP scope (Phase 0 + Phase 1)
+
+### In scope (Phase 0 + 1)
+
+- [ ] **Scaffold `faro/` Next.js monorepo** at lwiki repo root. Move `faro-prd.md` into `faro/`.
+- [ ] **Next.js 16 + React 19 + Tailwind v4 + shadcn Luma preset** via `shadcn/create` (or hand-extract from [tweakcn.com](https://tweakcn.com)).
+- [ ] **GitHub mirror CI** — `.gitlab-ci.yml` job that `git subtree push --prefix=faro/ github faro main` on every push to main. Owner: `github.com/lucaramirezo/faro` (public OR private — decide at first push).
+- [ ] **Auth middleware** reading `Tailscale-User-Login` header with owner allowlist from `faro/profiles/lwiki.yml`.
+- [ ] **Profile-slug nav.** Top bar shows `faro/lwiki ● active` from v0.1; "switch profile" dropdown is wired but inert (only profile listed).
+- [ ] **Home panel.** Three KPI cards: today $, this-week $, **subsidy captured this week** (`equivalent_api_cost − $200/mo Max prorated`).
+- [ ] **Subscription card.** Claude Max + OpenRouter at v0.1; token-API toggle exposes per-token equivalents. Manual-entry stubs for ChatGPT/Gemini.
+- [ ] **Plan limits & windows.** Claude Code 5h block + weekly rollup via `ccusage blocks --json` and `ccusage daily --json`. Auth-mode pill ("OAuth/Max" vs "API key") from `~/.claude/.credentials.json`.
+- [ ] **Sharded dream review.** Vertical card list grouped by category (Merged / Resolved / Pruned / Surfaced). Per-card 3-button (Approve / Tweak / Deny) + kebab (Defer / Needs-info). Bulk "Approve all N" per section. Live materialize to `memory.md.next`; Finalize promotes. Keyboard J/K/A/T/D/U.
+- [ ] **Decision audit trail.** Per-claim row in `claim_decisions` table; per-decision JSON file at `raw/decisions/<date>/<run_id>/<claim_id>.json`.
+- [ ] **Decommission `lwiki_ui/`** at end of Phase 1: stop systemd unit, cut Tailscale Serve over to faro, delete the package in Phase 2.
+
+### Out of scope (deferred)
+
+- ❌ Multi-agent profile switcher (Phase 4)
+- ❌ Skills inventory and parser (Phase 2)
+- ❌ Memory tree view (Phase 2)
+- ❌ Integrations grid (Phase 2)
+- ❌ Scheduled tasks panel (Phase 2)
+- ❌ Activity table + per-day focus bar (Phase 3)
+- ❌ Recommender + skill-install cards (Phase 3 — phase-gated on DESIGN.md)
+- ❌ Knowledge graph (Phase 3)
+- ❌ Langfuse v3 self-host + Sessions iframe (Phase 4)
+- ❌ Rich-artifact pipeline via `web-artifacts-builder` for dream reports (Phase 5 — phase-gated)
+- ❌ Multi-user RBAC + Caddy + Keycloak (v0.2+)
+- ❌ Public domain via Ionos (v0.2+)
+
+---
+
+## 4. User stories
+
+**Phase 0 / Phase 1 (MVP):**
+
+1. *As Luca, I want a faro home page that loads in <1s on my Tailnet and shows today's spend, this week's spend, and the subsidy captured vs my $200 Max sub — so I know at a glance whether the autonomous work is paying for itself.* ✅
+2. *As Luca, I want to see how much of my 5-hour Claude Code block I've consumed, plus when it resets, so I don't get surprised by a usage-limit-reached during a long session.* ✅
+3. *As Luca, I want to review today's dream by **claim**, not by document — each pruned/merged/resolved/surfaced item gets its own Approve/Tweak/Deny card, with bulk "Approve all merges" for the safe cases.* ✅
+4. *As Luca, I want to **defer** a dream claim ("come back to me tomorrow") and **request more info** on a thin-evidence claim, instead of forcing yes/no every time.* ✅
+5. *As Luca, I want the nav to show `faro/lwiki ● active` so when I later add canon as a profile, switching is one click and I never get confused which agent I'm looking at.* ✅
+6. *As Luca, I want the existing Slack dream-approval card to still work (Approve/Deny/Re-run as-is) — the new sharded UI is additive, not destructive.* ✅
+7. *As Luca, I want auth mode (OAuth/Max vs API key) visible everywhere costs are shown — so I never confuse a free-from-sub call with a billed call.* ✅
+8. *As Luca, I want my faro/ subtree pushed to a personal GitHub repo automatically on every GitLab push to main — so faro is portable, portfolio-able, and decoupled from the private lwiki vault.* ✅
+
+**Phase 2+ (representative):**
+
+9. *As Luca, I want the Skills panel to show every skill installed at user and project scope, with last-used date, run-count, estimated $-saved this week — so I can prune unused skills and double down on what works.*
+10. *As Luca, I want the Memory panel to render the memory tree with backlink counts — Obsidian handles the graph view; faro just shows hierarchy and outliers.*
+11. *As Luca, I want the Activity panel to show focus-hours per day as a horizontal bar, with the per-day session count and total turns — to validate my working rhythm is healthy.*
+12. *As Luca, I want a recommender panel that surfaces "skill candidates" extracted from the Surfaced section of dreams, with a one-click copy-as-`/install-skill` prompt — closing the loop between dreams and tooling.*
+13. *As Luca, I want to switch from `faro/lwiki` to `faro/refactor-canon` and see canon's home, sessions, dreams, integrations — same UI, scoped state.*
+
+---
+
+## 5. Architecture
+
+### 5.1 Stack — Full Next.js + shadcn Luma (decided 2026-05-12)
+
+```
+faro/                            # Next.js monorepo at lwiki repo root
+├── faro-prd.md                  # this file, moved here in Phase 0
+├── README.md                    # public-facing readme (mirrored to GitHub)
+├── package.json                 # Bun-managed
+├── bun.lock
+├── next.config.ts
+├── tsconfig.json
+├── tailwind.config.ts
+├── components.json              # shadcn registry config (Luma preset)
+├── biome.json                   # linter+formatter
+├── app/
+│   ├── layout.tsx               # root layout, dark by default
+│   ├── globals.css              # Tailwind v4 @theme + Luma tokens
+│   ├── (dashboard)/             # route group, shares dashboard layout
+│   │   ├── layout.tsx           # sidebar/topbar, profile slug, ⌘K
+│   │   ├── page.tsx             # Home
+│   │   ├── cost/page.tsx        # Subscription + plan limits
+│   │   ├── dreams/page.tsx      # Dream queue
+│   │   ├── dreams/[runId]/page.tsx        # Sharded review
+│   │   ├── skills/page.tsx      # Phase 2
+│   │   ├── memory/page.tsx      # Phase 2
+│   │   └── ...                  # Phase 2+
+│   └── api/
+│       ├── home/route.ts
+│       ├── cost/blocks/route.ts
+│       ├── dreams/[runId]/claims/route.ts
+│       ├── dreams/[runId]/claims/[claimId]/route.ts
+│       ├── dreams/[runId]/finalize/route.ts
+│       └── profile/route.ts
+├── components/
+│   ├── ui/                      # shadcn Luma components (40+)
+│   ├── home/                    # KPICard, Sparkline, ...
+│   ├── cost/                    # SubscriptionCard, BlockProgress, ...
+│   ├── dreams/                  # ClaimCard, BulkApproveBar, LivePreview, ...
+│   ├── nav/                     # TopBar, ProfileSlug, CommandPalette
+│   └── shared/
+├── lib/
+│   ├── db.ts                    # better-sqlite3 reader/writer, WAL mode
+│   ├── ccusage.ts               # shell-out wrapper (blocks --json, daily --json)
+│   ├── pricing.ts               # LiteLLM model_prices JSON fetcher + cache
+│   ├── jsonl.ts                 # ~/.claude/projects/*.jsonl parser (fallback)
+│   ├── auth.ts                  # Tailscale-User-Login validation
+│   ├── profiles.ts              # profile resolver, reads faro/profiles/*.yml
+│   └── slack-bridge.ts          # state.db status updates for slack-message-ts
+├── middleware.ts                # Next.js middleware — gates ALL routes on Tailscale header
+├── profiles/
+│   └── lwiki.yml                # active profile config (see §5.2)
+├── public/
+│   └── favicon.ico              # auth-exempt (existing pattern preserved)
+├── scripts/
+│   ├── install.sh               # Phase 0 — bun install + shadcn add + DB migrate
+│   └── migrate.ts               # claim_decisions + future tables
+└── tests/
+    ├── unit/                    # vitest
+    ├── e2e/                     # playwright on Tailnet
+    └── fixtures/                # sample jsonl, dream reports
+```
+
+**Runtime:** Bun 1.2+ (matches refactor-canon-bot stack pin). Native modules use Node 22 ABI (Bun bundles it). One systemd unit on pei: `bun .next/standalone/server.js`.
+**Build:** `bun next build` produces `.next/standalone/` with bundled dependencies. Output committed to git? **No** — built fresh on pei via post-pull hook OR in GitLab CI which pushes the build artifact.
+**State:** shared SQLite at `slack_agent/runs/state.db` (existing). Faro opens it with `better-sqlite3` in WAL mode. Python slack_agent continues writing concurrently — WAL handles it.
+**Auth:** `middleware.ts` reads `Tailscale-User-Login` request header; rejects with 403 if not in `profiles/lwiki.yml.owner_logins`. Tailscale Serve auto-strips spoofed copies before they hit Bun.
+**Edge:** Caddy on pei (NEW — currently Tailscale Serve fronts directly) reverse-proxies port 3000 → `pei.tail<id>.ts.net:443`. Caddy preserves `Tailscale-User-Login` header. Why Caddy: positions us for Phase 4 multi-host + future Ionos domain without rewriting deploy.
+**Dev:** `bun dev` locally; talks to a copy of `state.db` (sync down from pei via existing rsync pattern).
+
+### 5.2 Profile boundary (single-tenant now, multi-tenant later)
+
+Every queryable table gets a `profile_id TEXT NOT NULL DEFAULT 'lwiki'` column. Migration is additive (Phase 0). `lib/profiles.ts` returns the active profile from a session cookie (default `lwiki`); switcher writes the cookie. v0.1 has only one profile; v0.2 wires multiple.
+
+Per-profile config lives at `faro/profiles/<slug>.yml`:
+
+```yaml
+profile: lwiki
+display_name: "lwiki — Luca's second brain"
+agent_root: /home/luca/projects/lwiki
+memory_dir: memory
+state_db: slack_agent/runs/state.db
+jsonl_root: /home/luca/.claude/projects/-home-luca-projects-lwiki
+heartbeat_path: memory/heartbeat.md
+slack_workspace: TRL
+owner_logins:
+  - lucaramirezol@gmail.com
+status: active
+```
+
+`refactor-canon` gets its own `faro/profiles/refactor-canon.yml` in Phase 4 (or in canon repo, depending on how we split — defer).
+
+### 5.3 Data flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ ~/.claude/projects/<slug>/*.jsonl    (Claude Code session telemetry)    │
+│ ~/.claude/stats-cache.json           (pre-aggregated daily rollups)     │
+│ ~/.claude/.credentials.json          (OAuth presence → auth mode)       │
+└────────────────────┬────────────────────────────────────────────────────┘
+                     │ ccusage CLI shell-out (Bun subprocess)
+                     ▼
+              ┌───────────────────┐    ┌──────────────────────────┐
+              │ lib/ccusage.ts    │◄───┤ lib/pricing.ts (LiteLLM) │
+              └─────────┬─────────┘    └──────────────────────────┘
+                        │
+        ┌───────────────┴────────────────┐
+        ▼                                ▼
+┌─────────────────┐              ┌─────────────────────────┐
+│ usage_blocks    │              │ Next.js Server Components│
+│ (SQLite, NEW)   │──── read ───►│ + Route Handlers         │
+└─────────────────┘              └────────────┬────────────┘
+                                              │
+                                       Server-side render
+                                              │
+                                              ▼
+                                  ┌───────────────────────┐
+                                  │ HTML + RSC payload    │
+                                  │ → browser             │
+                                  │ shadcn Luma components│
+                                  │ Embla + Framer Motion │
+                                  │ for dream cards       │
+                                  └───────────────────────┘
+                                              ▲
+                                              │ Tailscale Serve + Caddy
+                                              │ injects Tailscale-User-Login
+                                              │
+                                       middleware.ts gate
+                                              │
+                                          owner login
+                                              │
+                                              ▼
+                                  ┌─────────────────────────┐
+                                  │ Slack agent (existing)  │
+                                  │ pipeline_approvals.py   │
+                                  └────────────┬────────────┘
+                                               │
+                            ┌──────────────────┴──────────────────┐
+                            │  shared SQLite state.db (WAL mode)  │
+                            │   read+write from BOTH Bun + Python │
+                            └─────────────────────────────────────┘
+```
+
+### 5.4 Shared state.db contract (CRITICAL)
+
+`slack_agent/runs/state.db` is the existing single source of truth for pipeline_runs. faro reads and writes the SAME database via `better-sqlite3`. WAL mode is enabled (per CLAUDE.md). Concurrent access rules:
+
+| Operation | Owner | Writes |
+|---|---|---|
+| Insert new dream/reflection pipeline_run | Python (dreams cron, reflection cron) | yes |
+| Update slack_message_ts after Block Kit post | Python (slack_agent) | yes |
+| Update pipeline_runs.status from Slack click | Python (slack_agent) | yes |
+| **Insert claim_decisions rows on dream page load** | **Bun (faro)** | **yes (NEW)** |
+| **Update claim_decisions.status on per-claim click** | **Bun (faro)** | **yes (NEW)** |
+| **Update pipeline_runs.status from faro Finalize** | **Bun (faro)** | **yes (NEW)** |
+| **Append raw/decisions/<...>.json** | **Bun (faro)** | **yes (NEW)** |
+| **Trigger apply_dream (file ops + git commit)** | **Bun (faro)** — duplicates Python logic in TS | **yes (NEW)** |
+| Slack bulk-approve (when triggered from Slack) | Python — calls into `apply_dream` | yes |
+
+The Slack "Approve" / "Deny" / "Re-run as-is" buttons continue to work unchanged. When Slack approves, all pending claim_decisions for that run get bulk-stamped via a small additive Python helper added to `pipeline_approvals.py`. faro's Finalize button does the inverse — promotes per-claim decisions to a full apply.
+
+**Why duplicate file-ops logic in TS instead of shelling out to Python:** the existing apply_dream is 30 lines of `cp + mv + git`. Reimplementing in TS keeps faro self-contained, avoids spawn-on-every-request, and the duplication is bounded. Both implementations call the same canonical paths.
+
+### 5.5 Sharded dream model
+
+NEW table `claim_decisions`:
+
+```sql
+CREATE TABLE claim_decisions (
+  claim_id      TEXT PRIMARY KEY,         -- sha256(category + section + content)[:16]
+  run_id        TEXT NOT NULL,            -- joins pipeline_runs.run_id
+  profile_id    TEXT NOT NULL DEFAULT 'lwiki',
+  category      TEXT NOT NULL,            -- merged|resolved|pruned|surfaced
+  section_path  TEXT NOT NULL,            -- e.g. "Current Focus" / "Open Questions"
+  claim_text    TEXT NOT NULL,            -- the raw bullet text
+  evidence      TEXT,                     -- JSON: [{kind:"line", path, lineno, snippet}, ...]
+  status        TEXT NOT NULL,            -- pending|approved|denied|tweaked|deferred|needs_info
+  tweak_text    TEXT,
+  reviewer_note TEXT,
+  decided_at    TIMESTAMP,
+  decided_by    TEXT,                     -- tailscale login
+  FOREIGN KEY (run_id) REFERENCES pipeline_runs(run_id)
+);
+CREATE INDEX idx_claim_decisions_run    ON claim_decisions(run_id, profile_id);
+CREATE INDEX idx_claim_decisions_status ON claim_decisions(status, profile_id);
+```
+
+**Materialization protocol:**
+
+1. Dream emits `dream-report.md` + `memory.md` (existing) plus a **parsed sidecar** `claims.json` (NEW — added in Phase 1 to [`dreams/dream.py`](../dreams/dream.py)).
+2. On first visit to `/dreams/[runId]`, the Next.js route reads `claims.json` and inserts pending `claim_decisions` rows.
+3. Each user action POSTs to `/api/dreams/[runId]/claims/[claimId]` updating status + optionally writing to staging `memory.md.next` in the draft dir.
+4. **Finalize** button (enabled when ≥1 claim approved/tweaked) merges staging → `memory/memory.md`, archives the draft (same semantics as Python `apply_dream`), runs git commit. Unresolved claims roll into `deferred` and surface in tomorrow's dream input.
+5. Slack `[Approve all] [Deny all]` buttons keep working: bulk-stamp every pending claim with the chosen verb. Backward-compatible.
+
+---
+
+## 6. Feature specification
+
+### 6.1 Home
+
+**Above the fold:**
+
+- KPI card 1 — *Today's AI spend* — sum of `usage_blocks.cost_today_usd` across all providers. Sparkline: last 7 days.
+- KPI card 2 — *This week's AI spend* — 7-day rolling. Sparkline: same.
+- KPI card 3 — *Subsidy this week* — `this_week_equivalent_api_$ − prorated_sub_$`. Positive = sub is paying for itself. Color: green if positive, amber if negative <20%, red if negative >20%.
+
+**Below the fold:**
+
+- "Pending your attention" — count of pending dream claims, pending drafts, integration errors. Each chip links to the relevant panel.
+- "Recent dreams" — last 5 dreams with status pill, link to sharded review.
+- "Bot services" — green/red pills for Slack agent, Telegram agent, heartbeat cron, reflection cron, dreams cron.
+
+Source for `pending your attention`: existing `memory/heartbeat.md` (parsed) + `pipeline_runs WHERE status='pending'`.
+
+### 6.2 Subscription
+
+- One card per subscription. v0.1 ships **Claude Max** and **OpenRouter**.
+- Claude Max card: $200/mo, auth mode badge ("OAuth/Max"), this-month consumption in tokens, equivalent-API-$ toggle (per-million-tokens pricing dropdown next to it).
+- OpenRouter card: live credits remaining via `/api/v1/credits`, last 10 generations via `/generation`, cost per generation.
+- Manual-entry stubs: ChatGPT Plus, Gemini Advanced, GitHub Copilot — placeholder cards with "[manual entry]" badge and a textarea for monthly token estimates.
+
+### 6.3 Plan limits & windows
+
+- **Claude Code 5-hour block** — `ProgressCircle` (shadcn/Tremor) showing % tokens used; subtitle "resets at HH:MM" (from `ccusage blocks --json currentBlock.endTime`). When no `usageLimitResetTime` is detected, fall back to projection-based estimate.
+- **Weekly rolling** — horizontal bar; weekly token cap is published by Anthropic as a range, so display raw count + range as context.
+- **OpenRouter credits** — same shape; cap is explicit credit balance.
+- **Auth mode pill** at the top of the panel — "OAuth/Max" (weekly limit applies) vs "API key" (per-request billing, no weekly limit).
+
+### 6.4 Sharded dream review (the centerpiece)
+
+**Page layout** (vertical card list, NOT carousel — research-decided 2026-05-12):
+
+```
+┌─ faro/lwiki ● active ──────────────────── ⌘K  @luca ─┐
+├─ Home  Cost  Skills  Memory  Dreams ●  ...            │
+│                                                       │
+│ ┌─ Dream 2026-05-12 ──────────────── 8/17 done ────┐  │
+│ │ Summary: "Major churn this week..."  [Finalize ▸]│  │
+│ │                                                  │  │
+│ │ ── PRUNED ─────────────── [Approve all 3]        │  │
+│ │ ┌──────────────────────────────────────────────┐ │  │
+│ │ │ Remove stale 'Phase 5 DEFERRED' line         │ │  │
+│ │ │ ▸ evidence: memory.md:10                     │ │  │
+│ │ │ ▸ superseded: 2026-05-11 dream redesign      │ │  │
+│ │ │ [✓ Approve] [✎ Tweak] [✗ Deny] ⋯ Defer  ?    │ │  │
+│ │ └──────────────────────────────────────────────┘ │  │
+│ │ ...more pruned cards                              │  │
+│ │                                                  │  │
+│ │ ── MERGED ───────────────── [Approve all 5]      │  │
+│ │ ── RESOLVED ─────────────── [Approve all 4]      │  │
+│ │ ── SURFACED ─────────────── (review individually)│  │
+│ │                                                  │  │
+│ └──────────────────────────────────────────────────┘  │
+│                                                       │
+│ Live preview: memory.md.next                 [⌨ J/K/A/T/D/U] │
+└───────────────────────────────────────────────────────┘
+```
+
+**Behavior:**
+
+- Section headers sticky on scroll.
+- Cards are React Server Components for initial render; per-card actions are Server Actions (Next.js 16) so they round-trip without client JS for the action itself.
+- Framer Motion `layoutId` animates card → decided state. Embla supports an optional "carousel mode" toggle (off by default).
+- Live-Preview pane on the right shows `memory.md.next` diff with syntax highlighting (Shiki).
+- Keyboard shortcuts (global listener in a client component): J/K move focus, A/T/D act, U undoes last (10s window, Sonner toast).
+- Bulk "Approve all N" per section — Server Action with single-row Linear-style Undo.
+- Finalize button enabled when `count(approved) + count(tweaked) >= 1`. Confirmation modal: "Apply 8 decisions; 9 deferred to next dream. Proceed?" → triggers TS port of `apply_dream` flow.
+
+### 6.5 Cross-cutting: nav + profile slug + command palette
+
+Top bar (Next.js root layout):
+
+```
+faro/lwiki ● active      ⌘K   Home  Cost  Skills  Memory  Dreams  Integrations  Activity  ⚙
+```
+
+- `faro/<profile_slug>` is a dropdown — v0.1 lists only `lwiki`. In v0.2: `lwiki ● active`, `refactor-canon ○ inactive`. Status pill reflects profile health (active = jsonl activity within last 24h).
+- `⌘K` opens `cmdk` command palette. v0.1 commands: "go to dream", "open profile", "copy as prompt for…".
+
+---
+
+## 7. Tech stack
+
+| Layer | Choice | Version (May 2026) | Rationale |
+|---|---|---|---|
+| Runtime | **Bun** | 1.2+ | Matches refactor-canon-bot stack pin. Node 22 ABI bundled for native modules. |
+| Framework | **Next.js** | 16 | App Router, RSC, Server Actions, standalone build for systemd deploy. |
+| UI lib | **React** | 19 | Required by Next.js 16 + shadcn. |
+| Styling | **Tailwind v4** | 4.x | shadcn Luma is built on Tailwind v4 + `@theme`. |
+| Components | **shadcn/ui Luma preset** | shipped Mar 2026 | True Luma fidelity. Install via `npx shadcn@latest add` after `shadcn/create` Luma scaffold. |
+| Primitives | Radix UI | latest | Underlies shadcn Luma. |
+| Theme tooling | [tweakcn.com](https://tweakcn.com) | live | Tune Luma palette if needed. |
+| Lint/format | **Biome** | latest | Matches midday-ai/v1 stack — single tool replaces ESLint + Prettier. |
+| Animations | framer-motion | latest | `layoutId` for card transitions. |
+| Carousel | embla-carousel-react | latest | shadcn's official carousel underpinning. |
+| Command palette | cmdk | latest | shadcn's official cmdk integration. |
+| Charts/sparklines | **Tremor** | latest | Tailwind-native, copy-paste shadcn-style. |
+| Toasts | Sonner | latest | shadcn's official toast. |
+| Knowledge graph (Phase 3) | react-sigma + graphology | latest | WebGL, 10K+ nodes. |
+| Database | **better-sqlite3** | 12.x | Native Node binding, WAL-mode safe with Python sqlite3. Pinned same version as canon-bot. |
+| State.db | shared with slack_agent at `slack_agent/runs/state.db` | — | Existing WAL contract preserved. |
+| Usage parser | shell out to [`ccusage`](https://github.com/ryoppippi/ccusage) via Bun subprocess | latest | Don't reimplement. Fallback: parse jsonl directly via `lib/jsonl.ts`. |
+| Pricing source | LiteLLM [`model_prices_and_context_window.json`](https://github.com/BerriAI/litellm) | refresh weekly | Canonical pricing table. |
+| OpenRouter | HTTP API (`/credits`, `/generation`) | — | Direct fetch. |
+| Auth | Tailscale-User-Login header gate via Next.js middleware | — | Existing pattern preserved. |
+| Edge | **Caddy** on pei (NEW) | 2.x | Reverse-proxies Bun port 3000 → Tailscale Serve. Header preservation. Positions us for Phase 4 multi-host + future Ionos domain. |
+| Trace backbone | Local jsonl parser + sqlite rollup | — | **Local-first per user direction.** Langfuse deferred to Phase 4 only if canon multi-user demand emerges. |
+| Skill: rich artifacts | [`web-artifacts-builder`](https://github.com/anthropics/skills/tree/main/skills/web-artifacts-builder) | latest | Phase 5. |
+| Skill: aesthetic | [`frontend-design`](https://github.com/anthropics/skills/tree/main/skills/frontend-design) | already loaded | Aesthetic guardrails. |
+| Skill: design system | NEW `faro-design-guidelines` (clone of `brand-guidelines`) | TBD | Phase 0 — locks palette/fonts before any UI ships. |
+| Mirror destination | `github.com/lucaramirezo/faro` | — | Subtree-pushed from GitLab on every main push. |
+| CI/CD | **GitLab CI** for build + mirror (primary), **GitHub Actions** for OSS readers only | — | Primary CI stays on self-hosted GitLab. |
+| Production deploy | systemd unit on pei, `bun .next/standalone/server.js` | — | One process. |
+
+**Explicit non-choices:**
+
+- ❌ **Hybrid D (FastAPI + Basecoat + islands)** — reopened and rejected 2026-05-12. Basecoat is Luma-flavored, not true Luma. User directive: "perfect fit".
+- ❌ FastAPI/Jinja anywhere in faro — `lwiki_ui/` retires at end of Phase 1.
+- ❌ Astro 5 — viable but smaller community for dashboard pattern; Next.js wins on midday-ai/v1 cribbing.
+- ❌ Phoenix LiveView / DatastarUI / Hermes-webui fork — language rewrites or wrong runtime.
+- ❌ McCavity/claude-code-dashboard fork — license unclear; reference architecture only.
+
+---
+
+## 8. Security & configuration
+
+### 8.1 Auth
+
+- **Next.js middleware** (`middleware.ts`) reads `Tailscale-User-Login` header (auto-injected by Tailscale Serve; spoofed copies stripped). Owner allowlist in `faro/profiles/lwiki.yml`.
+- **Caddy** preserves the header from Tailscale Serve → Bun. Caddy config explicitly: `header_up Tailscale-User-Login {http.request.header.Tailscale-User-Login}`.
+- **v0.2+:** per-profile owner list — `lwiki` stays single-user, `refactor-canon` gets Duo + Marc. If public exposure demanded: Keycloak OIDC route added in Caddy as alternative auth path.
+- **Never:** API keys, credentials, or tokens in HTML/JSON responses. Auth mode badge is "OAuth/Max" or "API key" — no secret values exposed.
+
+### 8.2 CSRF / path traversal
+
+- Next.js middleware injects CSRF token for non-GET requests; Server Actions get framework CSRF protection by default.
+- Path operations use a TS port of `_assert_under` from [`slack_agent/pipeline_approvals.py`](../slack_agent/pipeline_approvals.py:291).
+- All state-changing routes require the existing per-run `decision_token` (preserved from `lwiki_ui/routes/review.py`).
+
+### 8.3 Outbound action guardrails
+
+- **No autonomous outbound actions.** Faro is a *capture* surface for approvals; the actual outbound action runs in the agent backend (Slack agent, dreams pipeline, reflection pipeline).
+- All state-changing routes go through a TS port of `_git_commit_state_change` so the audit trail is preserved.
+
+### 8.4 Configuration
+
+`.env.local` (gitignored):
+
+```bash
+FARO_PROFILE_DEFAULT=lwiki
+FARO_BASE_URL=https://pei.tail<id>.ts.net
+FARO_OWNER_LOGIN=lucaramirezol@gmail.com
+FARO_OPENROUTER_API_KEY=<set in heartbeat/.env, mirrored>
+FARO_PRICING_REFRESH_HOURS=168
+FARO_CCUSAGE_PATH=ccusage
+FARO_STATE_DB=/home/luca/projects/lwiki/slack_agent/runs/state.db
+```
+
+`faro/profiles/*.yml` files declare each agent profile.
+
+### 8.5 GitHub mirror authentication
+
+GitLab CI job pushes `faro/` subtree to GitHub. Credentials options:
+
+- **Deploy key on pei** (recommended) — generate `ssh-keygen -t ed25519 -f ~/.ssh/github_faro -C "faro-mirror@pei"`. Add public key to GitHub repo Deploy Keys. GitLab CI runner on pei uses this key.
+- **PAT in GitLab CI variable** — alternative if pei isn't running CI runners.
+
+Phase 0 includes the creds-discovery step (see §11.0).
+
+---
+
+## 9. API specification (selected)
+
+### 9.1 Next.js routes (Phase 0 + 1)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/` | redirects to `/home` |
+| GET | `/home` | Home dashboard (RSC) |
+| GET | `/cost` | Subscription + Plan limits |
+| GET | `/dreams` | Pending dream queue |
+| GET | `/dreams/[runId]` | Sharded review page |
+| GET | `/api/home` | KPI sparkline JSON (cmdk + client refresh) |
+| GET | `/api/cost/blocks` | Proxy `ccusage blocks --json` |
+| GET | `/api/dreams/[runId]/claims` | List claims for a run |
+| PATCH | `/api/dreams/[runId]/claims/[claimId]` | Update one claim |
+| POST | `/api/dreams/[runId]/finalize` | Promote staging → memory.md |
+| GET | `/api/profile` | Active profile metadata |
+| POST | `/api/profile/switch` | Set session profile cookie (v0.1 no-op) |
+| GET | `/api/health` | Liveness |
+
+### 9.2 SSE (Phase 2+)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/sse/profile/[id]` | Server-sent events for active agent telemetry (token, tool, approval, done, error). Vocabulary cribbed from hermes-webui. |
+
+### 9.3 Server Actions (Phase 1)
+
+Used for per-claim mutations (faster than route handlers for form-driven actions):
+
+- `approveClaimAction(runId, claimId)` — sets status=approved, writes audit JSON.
+- `denyClaimAction(runId, claimId)` — sets status=denied.
+- `tweakClaimAction(runId, claimId, tweakText)` — sets status=tweaked, captures text.
+- `deferClaimAction(runId, claimId)` — sets status=deferred.
+- `bulkApproveSection(runId, category)` — bulk-stamp.
+- `finalizeDreamAction(runId)` — full apply.
+
+---
+
+## 10. Success criteria
+
+### 10.1 MVP success (end of Phase 1)
+
+- ✅ Faro home loads at `pei.tail<id>.ts.net/home` in <1s with three KPI cards populated.
+- ✅ Cost page shows live OpenRouter credits + Claude Max 5h block %.
+- ✅ Today's dream is reviewable claim-by-claim end-to-end through faro.
+- ✅ The 2026-05-12 Phase-5 anomaly dispatches: "Remove stale Phase 5 DEFERRED line" card under PRUNED, approved, `memory/memory.md:10` is gone.
+- ✅ Existing Slack dream-approval flow still works unchanged.
+- ✅ Tailscale-User-Login auth gates 100% of routes; favicon-only exemption preserved.
+- ✅ `lwiki_ui/` systemd unit stopped on pei; Tailscale Serve points at faro:3000.
+- ✅ GitHub `lucaramirezo/faro` repo has the `faro/` subtree, last commit matching GitLab origin.
+
+### 10.2 Quality bars
+
+- All pages: WCAG 2.2 AA contrast.
+- All pages: keyboard-navigable, focus-visible, no mouse-required flows.
+- All API endpoints: typed responses (Zod schemas), structured error envelope.
+- All state changes: append-only audit JSON to `raw/decisions/<date>/<run_id>/<claim_id>.json`.
+- Test coverage: every new route has a happy-path test (Vitest unit + Playwright e2e on Tailnet).
+
+---
+
+## 11. Implementation phases
+
+> Day estimates assume one focused half-day of build per "build-day" (matches Luca's cadence).
+
+### Phase 0 — Scaffold + GitHub mirror (~2d)
+
+**Goal:** stand up the Next.js monorepo at `faro/`, lock the design system, set up GitHub mirror. Zero application features.
+
+**Deliverables:**
+
+- [ ] `bun create next-app faro` at lwiki repo root.
+- [ ] Initialize Tailwind v4, configure `@theme` with Luma palette.
+- [ ] Install shadcn/ui Luma preset via `shadcn/create` workflow (see [Introducing Luma](https://ui.shadcn.com/docs/changelog/2026-03-luma)). Pre-add the components we'll need: `card`, `button`, `badge`, `separator`, `sonner`, `dialog`, `dropdown-menu`, `command` (cmdk), `progress`, `tabs`, `tooltip`, `kbd`.
+- [ ] Install Tremor, framer-motion, embla-carousel-react, better-sqlite3, zod, sonner.
+- [ ] Configure Biome (lint + format) — single tool, matches midday-ai/v1.
+- [ ] **Move `faro-prd.md` from repo root into `faro/`.**
+- [ ] **Author `faro/profiles/lwiki.yml`** with all paths.
+- [ ] **Author `faro/README.md`** — public-facing readme for the GitHub mirror. Brief description, screenshots TBD, link to PRD, install instructions.
+- [ ] **Author `faro/.gitignore`** — exclude `.next/`, `node_modules/`, `*.local`, etc.
+- [ ] `middleware.ts` — Tailscale-User-Login validation + owner allowlist check.
+- [ ] `lib/db.ts` — better-sqlite3 connection in WAL mode, exports typed reader/writer.
+- [ ] `lib/profiles.ts` — profile resolver.
+- [ ] **Migration**: `scripts/migrate.ts` — adds `claim_decisions` table + `profile_id` columns to `pipeline_runs` (additive; default 'lwiki').
+- [ ] **GitHub mirror setup**:
+  - [ ] Inventory pei creds (Task #5 — already running). If absent: generate ed25519 deploy key on pei, add public key to `github.com/lucaramirezo/faro` Deploy Keys (write access).
+  - [ ] Create `github.com/lucaramirezo/faro` (public OR private — Luca's call at creation).
+  - [ ] `.gitlab-ci.yml` job `mirror-faro-subtree` — runs on push to main, executes `git subtree split --prefix=faro -b _faro_only` then `git push github _faro_only:main`.
+  - [ ] First manual push to validate.
+- [ ] **NEW design-guidelines skill scaffolding**: `faro/.claude/skills/faro-design-guidelines/SKILL.md` — clone of Anthropic's `brand-guidelines` skill, palette = Luma + TRL accents, fonts = Geist (matches KULT Pro), enforces tokens before any UI component ships. NOTE: a full DESIGN.md draft for Phase 5 artifact pipeline is a separate phase gate.
+- [ ] **Caddy on pei**: install Caddy 2.x, write `Caddyfile` that reverse-proxies port 3000 → Tailscale Serve, preserves `Tailscale-User-Login` header. Stand alongside existing Tailscale Serve config (no cut yet).
+- [ ] **systemd unit** `faro.service` at `/etc/systemd/system/faro.service` — runs `bun .next/standalone/server.js` (after `bun next build`).
+- [ ] **Decommission plan** for `lwiki_ui/`: documented but not executed (executed at end of Phase 1).
+
+**Validation:**
+
+- `bun dev` runs locally, loads `/home` (empty shell with nav + profile slug).
+- pei `faro.service` starts, listens on 3000.
+- Tailscale Serve → Caddy → Bun chain returns 200 on `/api/health`.
+- 403 returned when `Tailscale-User-Login` header is absent.
+- `git push origin main` triggers GitLab CI mirror job, GitHub `lucaramirezo/faro` updates.
+
+### Phase 1 — MVP (~5d)
+
+**Goal:** Home + Subscription + Plan limits + Sharded Dreams. Cut over from `lwiki_ui/` to faro.
+
+**Deliverables:**
+
+- [ ] `lib/ccusage.ts` — wraps `ccusage blocks --json` + `daily --json`; falls back to direct jsonl parse if ccusage missing.
+- [ ] `lib/pricing.ts` — fetches LiteLLM JSON, caches at `faro/data/pricing-cache.json` weekly.
+- [ ] `lib/jsonl.ts` — direct fallback parser for `~/.claude/projects/<slug>/*.jsonl`.
+- [ ] `lib/auth-mode.ts` — detects OAuth vs API key.
+- [ ] `app/(dashboard)/page.tsx` + `components/home/*` — three KPI cards + sparklines via Tremor.
+- [ ] `app/(dashboard)/cost/page.tsx` + `components/cost/*` — Subscription cards + Plan limits + auth-mode pill.
+- [ ] `app/(dashboard)/dreams/page.tsx` — pending queue.
+- [ ] `app/(dashboard)/dreams/[runId]/page.tsx` — sharded review (RSC server-side, client island for keyboard + Live-Preview).
+- [ ] `components/dreams/ClaimCard.tsx`, `BulkApproveBar.tsx`, `LivePreview.tsx`, `KeyboardShortcuts.tsx`.
+- [ ] Server Actions for all per-claim mutations.
+- [ ] `components/nav/CommandPalette.tsx` — tiny cmdk with "go to dream", "copy as prompt", "open profile".
+- [ ] Update [`dreams/dream.py`](../dreams/dream.py) to emit `claims.json` sidecar.
+- [ ] Bulk Slack approve still works — add small Python helper to `pipeline_approvals.py` that bulk-stamps `claim_decisions` rows when Slack Approve fires.
+- [ ] Finalize endpoint — TS port of `apply_dream` (cp + mv + git commit).
+- [ ] **Cut over**: stop `lwiki_ui.service` on pei, point Tailscale Serve at faro, archive `lwiki_ui/` package to `_archive/lwiki_ui-2026-05-12/` (preserve git history via rename; full delete in Phase 2 after a week of stability).
+
+**Validation:** end of day 5, Luca opens faro, sees subsidy KPI, reviews today's dream claim-by-claim, finalizes; stale Phase-5 line is gone. Slack flow regression test passes. `lwiki_ui` is gone from systemd.
+
+### Phase 2 — Skills + Memory + Integrations + Scheduled tasks (~4d)
+
+**Goal:** the four inventory panels. Delete archived `lwiki_ui/` after stability window.
+
+**Deliverables:**
+
+- [ ] `lib/skill-parser.ts` — port from [developer-hasm/claude-code-dashboard](https://github.com/developer-hasm/claude-code-dashboard) (MIT). Scans `~/.claude/skills/`, `.claude/skills/`, parses `SKILL.md` frontmatter, derives last-used + run-count from jsonl tool-call records.
+- [ ] `app/(dashboard)/skills/page.tsx` — skill cards with $-saved/run/last-used.
+- [ ] `app/(dashboard)/memory/page.tsx` — flat tree view of `memory/`, backlink counts, frontmatter parsed.
+- [ ] `app/(dashboard)/integrations/page.tsx` — reads `memory/heartbeat.md` + systemd-unit status.
+- [ ] `app/(dashboard)/scheduled/page.tsx` — parses `~/.claude/scheduled_tasks.lock` + heartbeat/reflection/dreams crons.
+- [ ] Delete `_archive/lwiki_ui-*/`.
+
+**Validation:** all four panels populate from real lwiki state.
+
+### Phase 3 — Activity + Recommender + Knowledge graph (~3d)
+
+**Goal:** the analytical panels + the recommender loop.
+
+**Deliverables:**
+
+- [ ] `app/(dashboard)/activity/page.tsx` — per-day session count + focused-hours via Tremor BarList.
+- [ ] `app/(dashboard)/recommender/page.tsx` — surfaces approved "Surfaced" claims from past dreams flagged as "promote to skill" or "promote to wiki"; renders cards with `/install-skill <slug>` copy buttons.
+- [ ] `components/graph/KnowledgeGraph.tsx` — Sigma + graphology rendering of memory backlinks. ForceAtlas2 layout. Click to open in Obsidian. No edit mode.
+
+**Validation:** Activity shows last 7 days clearly; Recommender shows ≥1 candidate; graph renders 100+ nodes at 60fps.
+
+**Phase gate:** before /execute on Phase 3 Recommender flow, draft `faro/.claude/skills/recommender/DESIGN.md` capturing:
+
+- Skill-hub source (Anthropic skills marketplace, OpenClaw's clawhub, both)
+- Skill-card data shape (name, description, confidence, install command, tags, source)
+- Install command UX (copy-to-prompt vs faro-issued shell command)
+- Safety: skills install in user scope; never overwrite project skills
+
+(per Luca's note 2026-05-12: research clawhub + DESIGN.md gate before execute)
+
+### Phase 4 — Multi-agent + (optional) Langfuse (~3d)
+
+**Goal:** profile switcher + (if demanded) shared trace backbone.
+
+**Deliverables:**
+
+- [ ] Profile switcher in nav — real, lists discovered `faro/profiles/*.yml`.
+- [ ] `refactor-canon` profile YAML (placement: faro/profiles/refactor-canon.yml OR canon repo — decide).
+- [ ] Profile-scoped queries — every panel reads `profile_id`-filtered data.
+- [ ] (If multi-user demanded) Caddy + Keycloak OIDC route; per-profile ACL.
+- [ ] (If trace demanded) Langfuse v3 self-host on pei via Docker Compose; Claude Code OTEL exporter pointed at it; `app/(dashboard)/sessions/page.tsx` embeds Langfuse iframe inline.
+
+**Validation:** switch profile, every panel rescopes; canon-bot writes traces faro can browse.
+
+### Phase 5 — Rich-artifact pipeline (~2d)
+
+**Goal:** Thariq's HTML thesis applied at vault-scale.
+
+**Deliverables:**
+
+- [ ] Install [`web-artifacts-builder`](https://github.com/anthropics/skills/tree/main/skills/web-artifacts-builder) at project scope.
+- [ ] Optional `dream-report.html` emission alongside `dream-report.md`.
+- [ ] `app/(dashboard)/artifacts/page.tsx` — index of all `bundle.html` artifacts under `drafts/` and `wiki/artifacts/`.
+- [ ] `/weekly-status` artifact-generator skill.
+- [ ] Dream Review page toggles between MD report and HTML artifact when both exist.
+
+**Phase gate:** draft `faro/.claude/skills/artifacts/DESIGN.md` first.
+
+---
+
+## 12. Future considerations
+
+- **Multi-user RBAC for canon** — out of scope until canon usage proves the need.
+- **Public Ionos domain** — out of scope for v0.1; Caddy ready for it.
+- **Mobile responsive** — defer; Tailnet implies desktop primary.
+- **In-app skill install** — copy-as-prompt for now; later phases may shell out to `claude plugin install` with approval.
+- **Two-way artifact interaction** (Thariq sliders, knobs, drag-reorder) — Phase 5+.
+- **Eval workflows via Langfuse datasets** — only if dream quality regresses.
+- **Public-facing SaaS version** — explicit non-goal.
+
+---
+
+## 13. Risks & mitigations
+
+| Risk | Likelihood | Impact | Mitigation |
+|---|---|---|---|
+| `claim_decisions` migration breaks Slack flow | Med | High | Phase 0 ships migration empty; Slack flow keeps hitting existing `apply_dream`. Phase 1 wires Slack `Approve` to bulk-stamp claims AFTER e2e test of new flow. |
+| `ccusage` CLI absent on pei | Low | Med | `scripts/install.sh` installs ccusage globally; fallback `lib/jsonl.ts` parses directly. |
+| Bun + better-sqlite3 ABI mismatch | Low | High | Pin Bun 1.2+ + Node 22 same as canon-bot; reuse its working install pattern. |
+| Next.js standalone deploy unfamiliar | Low | Med | midday-ai/v1 ships a working Bun + Next.js + standalone systemd recipe — crib it. |
+| Profile generalization premature | Low | Low | `profile_id` baked in v0.1; switcher inert. Cheapest hedge. |
+| Luma preset drifts from current shadcn | Low | Low | Pin via `shadcn/create` snapshot at Phase 0; re-pull on next PRD iteration. |
+| Carousel-vs-list pushback | Low | Med | Vertical list decided; carousel toggle off by default. |
+| Skill-hub / clawhub direction unclear | High | Low | Phase 3 recommender phase-gates on `DESIGN.md`. |
+| HTML artifacts diverge from persistent UI styling | Med | Low | Shared `faro/design-tokens.yml` consumed by both Tailwind config and `web-artifacts-builder` skill in Phase 5. |
+| GitHub mirror leaks private memory accidentally | Med | High | Subtree push only `faro/` — `memory/`, `raw/`, `wiki/` NEVER cross the boundary. Verify with first manual push. CI job has explicit `--prefix=faro/` flag; no `--all`. |
+| Caddy + Tailscale-User-Login header forwarding subtle | Low | Med | Explicit `header_up` directive; integration test in Phase 0 hits faro through Tailscale + Caddy chain. |
+| Token cost explosion on bundled HTML artifacts | Low | Low | 2–4× MD cost per Thariq; only for high-value artifacts; hard-cap via SDK `max_tokens`. |
+
+---
+
+## 14. Decisions captured
+
+**2026-05-12 (initial):**
+
+1. **Stack: Hybrid D.** FastAPI shell + compiled Tailwind v4 + Basecoat UI + React/Vite islands. ❌ **Reopened and reversed same day** (see #5 below).
+2. **Dream UX: vertical card list grouped by category.** NOT carousel. Carousel left as off-by-default toggle.
+3. **Scope: lwiki-only in v0.1.** Profile-slug + active pill ship in v0.1 nav; `profile_id` column added to tables in Phase 0. Multi-agent switcher activates in Phase 4.
+4. **Trace backbone: local-first.** Parse `~/.claude/projects/*.jsonl` + `stats-cache.json` directly. Langfuse v3 deferred to Phase 4.
+
+**2026-05-12 (revised, post-Luma directive):**
+
+5. **Stack: Full Next.js 16 + shadcn Luma preset (Radix).** Reverses #1. Rationale: true Luma fidelity requires Radix React; Basecoat is Luma-flavored at best. Matches KULT Pro stack — maximum pattern reuse. FastAPI/lwiki_ui retires at end of Phase 1.
+6. **Runtime: Bun 1.2+** (matches refactor-canon-bot stack pin); Node 22 ABI for native modules.
+7. **Auth: Tailscale-User-Login only for v0.1.** Public domain via Ionos + Caddy + Keycloak deferred to v0.2+ when canon multi-user demand arrives. Caddy installed in Phase 0 to position us for later.
+8. **GitHub mirror: faro/ subtree only.** Push to `github.com/lucaramirezo/faro` from GitLab CI on every main push. `memory/`, `raw/`, `wiki/` NEVER cross to GitHub.
+9. **Naming: faro v0.1**, not v1.0. Cuando se semantiza el versionado real (post-Phase-1 launch), bumps to v1.0.
+10. **Subsidy-captured KPI** is the home-page wedge. No existing dashboard surfaces this.
+11. **Phase-3 recommender is gated.** Requires `DESIGN.md` + clawhub research before /execute.
+12. **Phase-5 artifact pipeline is gated.** Requires `DESIGN.md` before /execute.
+
+---
+
+## 15. Appendix
+
+### 15.1 Related documents
+
+- [`lwiki-prd.md`](../lwiki-prd.md) — parent PRD for lwiki system
+- [`the_unreasonable_effectiveness_of_html.md`](../the_unreasonable_effectiveness_of_html.md) — Thariq Shihipar's article; foundational thesis
+- [`CLAUDE.md`](../CLAUDE.md) — vault structure, session protocol
+- [`.claude/commands/create-agent-os-prd.md`](../.claude/commands/create-agent-os-prd.md) — iterator for this PRD
+- [`lwiki_ui/`](../lwiki_ui/) — predecessor package; retires at end of Phase 1
+
+### 15.2 Research citations
+
+**Architectural references:**
+
+- [vercel/next.js](https://github.com/vercel/next.js) v16 — App Router, RSC, Server Actions, standalone build.
+- [midday-ai/v1](https://github.com/midday-ai/v1) — Bun + Next.js + shadcn Luma + Biome starter. **Primary cribbing target for scaffold.**
+- [shadcn/ui](https://ui.shadcn.com) + [Luma preset announcement](https://ui.shadcn.com/docs/changelog/2026-03-luma).
+- [tweakcn.com](https://tweakcn.com) — live Luma theme editor.
+- [oven-sh/bun](https://github.com/oven-sh/bun) — runtime.
+- [WiseLibs/better-sqlite3](https://github.com/WiseLibs/better-sqlite3) — Node SQLite binding, WAL-safe.
+- [developer-hasm/claude-code-dashboard](https://github.com/developer-hasm/claude-code-dashboard) — MIT, Next.js 15. Skill parser logic.
+- [ryoppippi/ccusage](https://github.com/ryoppippi/ccusage) — MIT. CLI we shell out to.
+- [langfuse/langfuse](https://github.com/langfuse/langfuse) — MIT v3. Phase 4 trace backbone (deferred).
+- [abhi1693/openclaw-mission-control](https://github.com/abhi1693/openclaw-mission-control) — MIT. Approval-flow UX reference.
+- [nesquena/hermes-webui](https://github.com/nesquena/hermes-webui) — inspiration only.
+
+**UX references for sharded dream review:**
+
+- [elie222/inbox-zero](https://github.com/elie222/inbox-zero) — MIT 6k★. Card-triage primitive.
+- [usememos/memos](https://github.com/usememos/memos) — MIT. Card-stream UI.
+- [khoj-ai/khoj](https://github.com/khoj-ai/khoj) — citation-chip pattern.
+- Superhuman / Hey / Things 3 — keyboard-first triage models (pattern-only).
+- Cursor / Notion AI — per-claim accept/reject (pattern-only).
+
+**Anthropic skills:**
+
+- [`frontend-design`](https://github.com/anthropics/skills/tree/main/skills/frontend-design) — already loaded.
+- [`web-artifacts-builder`](https://github.com/anthropics/skills/tree/main/skills/web-artifacts-builder) — Phase 5 pipeline.
+- [`skill-creator`](https://github.com/anthropics/skills/tree/main/skills/skill-creator) — for new faro-specific skills.
+- [`brand-guidelines`](https://github.com/anthropics/skills/tree/main/skills/brand-guidelines) — template to clone for `faro-design-guidelines`.
+- [Impeccable](https://impeccable.style) — third-party design-skill suite (`/impeccable audit`, `/impeccable polish`).
+
+**HTML thesis & gallery:**
+
+- [Thariq Shihipar HTML effectiveness gallery](https://thariqs.github.io/html-effectiveness) — 20 examples.
+
+**Existing infrastructure references:**
+
+- [Caddy](https://caddyserver.com/docs) — reverse proxy on pei.
+- [Tailscale Serve](https://tailscale.com/kb/1242/tailscale-serve) — Tailnet ingress.
+- [Ionos DNS](https://www.ionos.com) — for v0.2+ public domain.
+
+### 15.3 Open questions for next iteration
+
+- **GitHub repo visibility** — `github.com/lucaramirezo/faro` public vs private at creation time. Public showcases the work; private gates portfolio. Defer to repo-creation moment.
+- **`refactor-canon` profile location** — `faro/profiles/refactor-canon.yml` in lwiki repo, or `faro-profile.yml` at canon repo root. Affects where multi-agent state lives.
+- **Where Phase 0 DESIGN.md draft lands** — root of `faro/.claude/skills/faro-design-guidelines/` vs `faro/DESIGN.md`. Tracks the KULT pattern (which uses `/kult/DESIGN.md`).
+- **`bun next build` outputs to git or not** — committing `.next/standalone/` simplifies pei deploy but bloats the GitHub mirror. Recommendation: build in GitLab CI, deploy artifact to pei via rsync, don't commit `.next/`. Confirm at Phase 0 execute.
+- **Caddy install on pei** — Docker Compose vs system package. Recommendation: system package (Debian repo); systemd manages it.

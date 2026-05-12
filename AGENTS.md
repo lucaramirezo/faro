@@ -12,7 +12,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 3. **Tailnet route**: `https://pei.taild21074.ts.net:8443/` (port-based, NOT sub-path `/faro`, NOT separate hostname).
 4. **Pei filesystem**: `/home/luca/lwiki/` (laptop is `/home/luca/projects/lwiki/`). Override via `FARO_AGENT_ROOT` env var.
 5. **SQLite on pei**: 3.53.1 built from source (`/usr/local/lib/libsqlite3.so.0`); apt-jammy's 3.51 has a WAL bug. better-sqlite3@12.9 bundles 3.53.0 patched.
-6. **Caddy**: installed on pei but **deferred to v0.2**; Tailscale Serve hits Node port directly.
+6. **Caddy**: installed on pei + `Caddyfile.faro` committed + validated (loopback `:9001 → :8766`), but **NOT in the active routing path yet**. Tailscale Serve hits Node directly at `:8443 → :8766` in v0.1. v0.2 will flip Tailscale Serve to point at Caddy. See [`infra/pei/caddy/README.md`](../infra/pei/caddy/README.md).
 7. **GitHub mirror**: only via GitLab CI subtree push. Manual pushes from pei shell require `GIT_SSH_COMMAND="ssh -p 22 ..."` because pei's `/etc/ssh/ssh_config` forces port 2269 for GitLab.
 8. **Biome lint**: `components/ui/**` is excluded (shadcn-shipped a11y warnings). Do NOT add new code there; new components go in `components/<domain>/`.
 9. **Next.js 16.2.6 deprecation**: `middleware` will be renamed to `proxy`. Track for a rename pass; current code uses `middleware.ts` and works fine.

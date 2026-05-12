@@ -180,7 +180,7 @@ faro/                            # Next.js monorepo at lwiki repo root
 **Build:** `bun next build` produces `.next/standalone/` with bundled dependencies. Output committed to git? **No** — built fresh on pei via post-pull hook OR in GitLab CI which pushes the build artifact.
 **State:** shared SQLite at `slack_agent/runs/state.db` (existing). Faro opens it with `better-sqlite3` in WAL mode. Python slack_agent continues writing concurrently — WAL handles it. Pei rebuilt system SQLite to 3.53.1 from source (Ubuntu jammy apt only ships 3.51); see `infra/pei/README.md` §SQLite.
 **Auth:** `middleware.ts` reads `Tailscale-User-Login` request header; rejects with 403 if not in `profiles/lwiki.yml.owner_logins`. Tailscale Serve auto-strips spoofed copies before they hit Node.
-**Edge (v0.1):** **Tailscale Serve directly fronts Node** at port `:8443` on the existing `pei.taild21074.ts.net` host (port-based, NOT sub-path `/faro` — Tailscale `--set-path` strips the prefix and conflicts with Next.js basePath). Caddy 2.x is installed on pei but **deferred to v0.2** (Caddyfile + Ionos public domain + Keycloak OIDC ride together).
+**Edge (v0.1):** **Tailscale Serve directly fronts Node** at port `:8443` on the existing `pei.taild21074.ts.net` host (port-based, NOT sub-path `/faro` — Tailscale `--set-path` strips the prefix and conflicts with Next.js basePath). Caddy 2.x is installed on pei + `Caddyfile.faro` is committed and validated (loopback `:9001 → :8766`), but **NOT in the active routing path in v0.1**. v0.2 flips Tailscale Serve to point at Caddy when the public Ionos domain + Keycloak OIDC land.
 **Dev:** `bun dev` locally; talks to a copy of `state.db` (sync down from pei via existing rsync pattern).
 
 ### 5.2 Profile boundary (single-tenant now, multi-tenant later)
@@ -563,7 +563,7 @@ Used for per-claim mutations (faster than route handlers for form-driven actions
 > 3. **Tailscale Serve: port `:8443`** on existing `pei.taild21074.ts.net` (NOT sub-path `/faro`, NOT separate hostname).
 > 4. **Pei filesystem: `/home/luca/lwiki/`** (laptop is `/home/luca/projects/lwiki/`). Override via `FARO_AGENT_ROOT`.
 > 5. **SQLite 3.53.1 built from source on pei** (jammy apt ships 3.51).
-> 6. **Caddy deferred to v0.2** (installed but unconfigured; see [`infra/pei/caddy/README.md`](../infra/pei/caddy/README.md)).
+> 6. **Caddy: installed + `Caddyfile.faro` committed and validated** (loopback `:9001 → :8766`), but NOT in the active routing path in v0.1. v0.2 flips Tailscale Serve to point at Caddy. See [`infra/pei/caddy/README.md`](../infra/pei/caddy/README.md).
 > 7. **GitHub mirror from pei shell needs `GIT_SSH_COMMAND="ssh -p 22 ..."`** (pei's `/etc/ssh/ssh_config` forces port 2269 for GitLab). CI runner is clean — automated job works without override.
 > 8. **Biome lint scopes out `components/ui/**`** (shadcn-shipped a11y warnings).
 > 9. **`middleware` → `proxy` deprecation in Next.js 16.2.6** — cosmetic warning, tracked for Phase 1 rename pass.
@@ -589,7 +589,7 @@ Used for per-claim mutations (faster than route handlers for form-driven actions
   - [ ] `.gitlab-ci.yml` job `mirror-faro-subtree` — runs on push to main, executes `git subtree split --prefix=faro -b _faro_only` then `git push github _faro_only:main`.
   - [ ] First manual push to validate.
 - [ ] **NEW design-guidelines skill scaffolding**: `faro/.claude/skills/faro-design-guidelines/SKILL.md` — clone of Anthropic's `brand-guidelines` skill, palette = Luma + TRL accents, fonts = Geist (matches KULT Pro), enforces tokens before any UI component ships. NOTE: a full DESIGN.md draft for Phase 5 artifact pipeline is a separate phase gate.
-- [ ] **Caddy on pei** — installed (`apt install caddy`) but **Caddyfile.faro deferred to v0.2** (no public domain in v0.1). Phase 0 routes via Tailscale Serve directly to the Node port. See `infra/pei/caddy/README.md`.
+- [x] **Caddy on pei** — installed (`apt install caddy`) + `Caddyfile.faro` committed + validated. Loopback-only (`:9001 → :8766`); **NOT in the active routing path in v0.1** — Tailscale Serve still hits Node directly. v0.2 flips Tailscale Serve to point at Caddy. See `infra/pei/caddy/README.md`.
 - [ ] **systemd unit** `faro.service` at `/etc/systemd/system/faro.service` — runs `node .next/standalone/server.js` on port `8766` (after `bun next build`).
 - [ ] **Decommission plan** for `lwiki_ui/`: documented but not executed (executed at end of Phase 1).
 

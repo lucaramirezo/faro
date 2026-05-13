@@ -50,6 +50,31 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_claim_decisions_status ON claim_decisions(status, profile_id);
 `);
 
+// Phase 4 artifacts index — see faro/.claude/skills/artifacts/DESIGN.md
+// artifact_id = sha256(content_hash + run_id)[:16] — content-addressed (DESIGN.md §4).
+// Mime enum: 'text/html' | 'text/markdown' | 'image/svg+xml' | 'application/json' | 'text/x-code'
+// Source enum: 'drafts' | 'wiki'
+db.exec(`
+  CREATE TABLE IF NOT EXISTS artifacts (
+    artifact_id   TEXT PRIMARY KEY,
+    run_id        TEXT,
+    profile_id    TEXT NOT NULL DEFAULT 'lwiki',
+    source        TEXT NOT NULL,
+    mime          TEXT NOT NULL,
+    path          TEXT NOT NULL,
+    label         TEXT,
+    emitter       TEXT,
+    bytes         INTEGER NOT NULL,
+    content_hash  TEXT NOT NULL,
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    promoted_at   TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES pipeline_runs(run_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_artifacts_run     ON artifacts(run_id, profile_id);
+  CREATE INDEX IF NOT EXISTS idx_artifacts_emitter ON artifacts(emitter, profile_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_artifacts_source  ON artifacts(source, profile_id, created_at DESC);
+`);
+
 function ensureColumn(table: string, column: string, type: string): void {
   const tCols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   if (tCols.length === 0) {
@@ -83,6 +108,9 @@ console.log("[faro] migrate: ensured idx_claim_decisions_parent");
 
 const rows = db.prepare("SELECT COUNT(*) as n FROM claim_decisions").get() as { n: number };
 console.log(`[faro] migrate: claim_decisions has ${rows.n} rows`);
+
+const artifactRows = db.prepare("SELECT COUNT(*) as n FROM artifacts").get() as { n: number };
+console.log(`[faro] migrate: artifacts has ${artifactRows.n} rows`);
 
 const tables = db
   .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")

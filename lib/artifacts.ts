@@ -54,6 +54,11 @@ export function mimeFromPath(p: string): Mime | null {
 }
 
 const EMITTER_PATTERNS: { match: RegExp; emitter: Emitter }[] = [
+  // Dreams: cron-emitted bundle lives at drafts/dreams/<date>/{approval.html,
+  // dream-report.md, claims.json, memory.md}. The studio scans this root in
+  // addition to drafts/artifacts/ (see scanArtifacts WALK_ROOTS). Order
+  // matters — dream patterns above other generic patterns.
+  { match: /^drafts\/dreams\//, emitter: "dreams" },
   { match: /dream[-_]report|\/dreams\//, emitter: "dreams" },
   { match: /brief\.html|\/heartbeat-/, emitter: "brief" },
   { match: /plan-approaches|plan-feature/, emitter: "plan-feature" },
@@ -77,9 +82,10 @@ export function deriveArtifactId(contentHash: string, runId: string | null): str
 
 export function extractRunIdFromPath(relativePath: string): string | null {
   // drafts/artifacts/<date>/<run_id>/<file...>  -> <run_id>
-  // wiki/artifacts/<slug>/<file...>             -> NULL (PRD §5.6: NULL for
-  //   hand-promoted wiki artifacts; gallery synthesizes a group key from
-  //   the slug at render time so the FK to pipeline_runs(run_id) stays valid).
+  // drafts/dreams/<date>/<file...>              -> NULL (gallery groups via
+  //   path-derived key; FK stays valid since the scanner null-checks the
+  //   run_id against pipeline_runs).
+  // wiki/artifacts/<slug>/<file...>             -> NULL (PRD §5.6).
   const draftsMatch = relativePath.match(/^drafts\/artifacts\/[^/]+\/([^/]+)\//);
   if (draftsMatch) return draftsMatch[1];
   return null;
@@ -104,6 +110,9 @@ export function groupKeyForArtifact(args: {
   const rel = relative(args.agentRoot, args.path);
   const wikiMatch = rel.match(/^wiki\/artifacts\/([^/]+)\//);
   if (wikiMatch) return `wiki-${wikiMatch[1]}`;
+  // Dreams cron output: drafts/dreams/<date>/<file> -> group by date.
+  const dreamsMatch = rel.match(/^drafts\/dreams\/([^/]+)\//);
+  if (dreamsMatch) return `dream-${dreamsMatch[1]}`;
   const draftsMatch = rel.match(/^drafts\/artifacts\/[^/]+\/([^/]+)\//);
   if (draftsMatch) return `manual-${draftsMatch[1]}`;
   return "manual";
@@ -151,8 +160,13 @@ export async function scanArtifacts(opts: ScanOpts = {}): Promise<ScanResult> {
   const draftsRoot = join(agentRoot, "drafts", "artifacts");
   const wikiRoot = join(agentRoot, "wiki", "artifacts");
 
+  // Walk roots: drafts/artifacts/ + drafts/dreams/ + wiki/artifacts/.
+  // drafts/dreams/ is the existing dream-cron output root; the studio reads
+  // it directly so we don't need a separate emitter step for A5.1.a.
+  const dreamsRoot = join(agentRoot, "drafts", "dreams");
   const files: string[] = [];
   await walkDir(draftsRoot, files);
+  await walkDir(dreamsRoot, files);
   await walkDir(wikiRoot, files);
 
   // Precompute the set of valid run_ids so we can null-out any artifact whose
@@ -202,6 +216,7 @@ export async function scanArtifacts(opts: ScanOpts = {}): Promise<ScanResult> {
     // a wiki-<slug> key from the path when run_id is null.
     const runId = rawRunId && validRunIds.has(rawRunId) ? rawRunId : null;
     const artifactId = deriveArtifactId(contentHash, runId);
+    // drafts/dreams/ + drafts/artifacts/ both classify as "drafts" source.
     const source: ArtifactSource = rel.startsWith("wiki/") ? "wiki" : "drafts";
     const emitter = classifyEmitter(rel);
     const stats = await stat(absPath);

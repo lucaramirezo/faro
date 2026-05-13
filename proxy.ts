@@ -28,6 +28,21 @@ function attachNonce(response: NextResponse, nonce: string): NextResponse {
   return response;
 }
 
+/**
+ * Per Next.js CSP guide
+ * (https://nextjs.org/docs/app/guides/content-security-policy), framework-
+ * level nonce propagation REQUIRES the `Content-Security-Policy` header to
+ * also be present on the *request* (not just the response). Next.js reads it
+ * to know which CSP applies during render and stamps the nonce onto every
+ * `<script>` it emits — including the runtime + chunk loader. Without this
+ * the `_next/static/chunks/*.js` loads fail with "violates the following
+ * Content Security Policy directive: script-src ... 'strict-dynamic'".
+ */
+function setRequestCspHeaders(headersRef: Headers, nonce: string): void {
+  headersRef.set("x-nonce", nonce);
+  headersRef.set("Content-Security-Policy", buildCspWithNonce(nonce));
+}
+
 // Tailnet CIDRs per https://tailscale.com/kb/1015/100.x-addresses
 // 100.64.0.0/10 covers 100.64.0.0 – 100.127.255.255 (IPv4)
 // fd7a:115c:a1e0::/48 is Tailscale's ULA prefix (IPv6)
@@ -64,7 +79,7 @@ export function proxy(req: NextRequest) {
     if (owners.length > 0) {
       const requestHeaders = new Headers(req.headers);
       requestHeaders.set("x-faro-login", owners[0]);
-      requestHeaders.set("x-nonce", nonce);
+      setRequestCspHeaders(requestHeaders, nonce);
       console.log(`[faro] auth: dev-mode auto-login as ${owners[0]} for ${path}`);
       return attachNonce(NextResponse.next({ request: { headers: requestHeaders } }), nonce);
     }
@@ -111,7 +126,7 @@ export function proxy(req: NextRequest) {
 
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-faro-login", login);
-  requestHeaders.set("x-nonce", nonce);
+  setRequestCspHeaders(requestHeaders, nonce);
   return attachNonce(NextResponse.next({ request: { headers: requestHeaders } }), nonce);
 }
 

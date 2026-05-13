@@ -41,8 +41,22 @@ export function SubsidyWedge({ apiEquivalentUsd, subscriptionUsd }: SubsidyWedge
         : "text-rose-400";
 
   return (
-    <Card className="p-4">
-      <div className="flex items-start justify-between gap-2">
+    <Card className="relative overflow-hidden p-4">
+      {/* Mesh-hero aurora — subsidy card only (scarcity = premium, PRD §14 #17).
+          4-radial CSS gradient stack, mix-blend plus-lighter, no animation,
+          no JS. ~0kB beyond globals. Pure visual polish. */}
+      <div
+        className="absolute inset-0 pointer-events-none mix-blend-plus-lighter opacity-55"
+        style={{
+          background:
+            "radial-gradient(at 20% 20%, oklch(0.72 0.16 50 / 0.55) 0, transparent 50%), " +
+            "radial-gradient(at 80% 10%, oklch(0.65 0.13 30 / 0.40) 0, transparent 45%), " +
+            "radial-gradient(at 70% 85%, oklch(0.55 0.10 290 / 0.35) 0, transparent 50%), " +
+            "radial-gradient(at 30% 70%, oklch(0.60 0.14 200 / 0.30) 0, transparent 45%)",
+        }}
+        aria-hidden="true"
+      />
+      <div className="relative flex items-start justify-between gap-2">
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground uppercase tracking-wide inline-flex items-center gap-1.5">
             <HugeiconsIcon icon={CoinsSwapIcon} size={12} strokeWidth={2} className="opacity-70" />
@@ -71,7 +85,7 @@ export function SubsidyWedge({ apiEquivalentUsd, subscriptionUsd }: SubsidyWedge
             </>
           )}
         </div>
-        <Button variant="ghost" size="sm" onClick={onToggle} className="shrink-0">
+        <Button variant="ghost" size="sm" onClick={onToggle} className="shrink-0 relative">
           {mode === "delta" ? "split" : "delta"}
         </Button>
       </div>

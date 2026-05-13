@@ -504,8 +504,8 @@ The studio is **gallery + provenance + handoff toolbar**, NOT a mini-IDE. Faro's
   - `text/html` → `<iframe sandbox="allow-scripts" src="/studio/raw/<artifact_id>">`. The raw endpoint streams the file with a Content-Security-Policy header restricting external network access.
   - `text/markdown` → `react-markdown` + `rehype-highlight`; existing `lib/shiki-diff.ts` reused for diff regions.
   - `image/svg+xml` → inline (sanitized via `DOMPurify`).
-  - `application/json` → `react-json-tree` (lighter weight than `react-json-view`).
-  - `text/x-code` → `@monaco-editor/react` **read-only**; lazy-loaded so it doesn't block RSC streaming.
+  - `application/json` → `react-json-view-lite` v2 (React 19 compatible; lighter than `react-json-view`).
+  - `text/x-code` → **Shiki** server-rendered `<pre>` via `lib/shiki-diff.ts` patterns. No client bundle; line numbers via Shiki transformer; text selection only (no in-place find — use `[Open in Claude Code]` for long files).
 - **Right pane (320px, collapsible) — provenance.** Reads from `pipeline_runs` joined with the originating jsonl session telemetry (existing `lib/jsonl.ts`). Renders: model + cost + duration, tool-call stream (with file paths linked into VS Code via `vscode://` URLs), and `claim_decisions` if this artifact is a dream report. Mirrors Manus's "Computer" pattern: *what the agent did to produce this artifact*.
 
 **6.6.2 Toolbar (top of center pane)**
@@ -585,8 +585,8 @@ The ingest review is the highest-leverage NEW use case: it's the single most-rep
 | Theme | **`next-themes`** | latest | Standard shadcn pattern; cookie-persisted. |
 | HTML iframe sandbox | native `<iframe sandbox>` + `postMessage` | — | No new lib; CSP already in place. Sandbox flags: `allow-scripts` only. |
 | Markdown renderer | **`react-markdown`** + `rehype-highlight` | latest | Existing Shiki via `lib/shiki-diff.ts` reused for diff regions. |
-| JSON viewer | **`react-json-tree`** | latest | Lighter than `react-json-view`; RSC-safe. |
-| Code viewer (read-only) | **`@monaco-editor/react`** | latest | Lazy-loaded; better than Shiki for long files; read-only mode prevents second-writer race with Claude Code. |
+| JSON viewer | **`react-json-view-lite`** | v2 | React 19 peer compatible; lighter than `react-json-view`; `react-json-tree` maintenance is dormant. RSC-safe. |
+| Code viewer (read-only) | **Shiki** (server-rendered `<pre>`) | via `lib/shiki-diff.ts` | RSC-rendered at build time; no client bundle (~3MB saved vs Monaco); eliminates `worker-src` CSP carve-out; inherits existing diff pipeline. Trade-off: no in-place find-in-file — long files go through `[Open in Claude Code]` handoff per decision #14. |
 | SVG sanitizer | **`DOMPurify`** | latest | Required before inline SVG render. |
 | Mesh gradient | CSS-only radial-gradient stack | — | No Three.js, no canvas; RSC-safe; static (no animation). |
 | Charts (full-bleed) | Existing **Tremor 3.18.7** via `<SparkAreaChart>` | — | Tremor chart absolutely positioned filling card + left-to-right scrim (`bg-gradient-to-r from-card via-card/70 to-transparent`) + relative KPI overlay. Shipped pattern in shadcn `stats-sparkline`. (Recharts was incorrectly listed in PRD v0.1; corrected 2026-05-13.) |
@@ -601,7 +601,7 @@ The ingest review is the highest-leverage NEW use case: it's the single most-rep
 - ❌ Phoenix LiveView / DatastarUI / Hermes-webui fork — language rewrites or wrong runtime.
 - ❌ McCavity/claude-code-dashboard fork — license unclear; reference architecture only.
 - ❌ **Three.js / OGL aurora** for hero cards *(2026-05-13)* — 50–100kB JS, requires `"use client"`, breaks RSC streaming. CSS radial-gradient stack achieves the same look with zero JS.
-- ❌ **Monaco read-write in the studio** *(2026-05-13)* — would make faro a second writer to artifacts that Claude Code owns on disk; creates sync conflicts. Monaco stays read-only; editing goes through `[Open in Claude Code]` handoff.
+- ❌ **Monaco entirely** *(2026-05-13, iteration #3)* — first reduced to read-only (would have made faro a second writer to artifacts Claude Code owns on disk; sync conflicts), then dropped in favor of Shiki RSC: zero client bundle, no `worker-src` CSP carve-out, no second-writer surface. Editing/navigation goes through `[Open in Claude Code]` handoff.
 - ❌ **File tree in the studio** *(2026-05-13)* — faro is a cockpit, not an IDE; the user has Claude Code one keystroke away. Reverse-chronological grouped-by-run list is the cockpit primitive (Manus/Replit Agent 4 pattern).
 - ❌ **In-browser real-time collaboration** *(2026-05-13)* — single-user system; no Yjs/Liveblocks/CRDTs.
 
@@ -843,10 +843,10 @@ Centerpiece. See §6.6 for the full spec.
 
 - [ ] **Migration**: `scripts/migrate.ts` adds the `artifacts` table (§5.6) with `(artifact_id, run_id, profile_id, source, mime, path, label, emitter, bytes, content_hash, created_at, promoted_at)` + indexes.
 - [ ] `lib/artifacts.ts` — disk scanner + index sync; emitter classifier; mime sniffer.
-- [ ] `app/(dashboard)/studio/page.tsx` — three-pane RSC layout (gallery / renderer / provenance). Client island for `postMessage` highlight handler + Monaco lazy-load.
+- [ ] `app/(dashboard)/studio/page.tsx` — three-pane RSC layout (gallery / renderer / provenance). Client island for `postMessage` highlight handler.
 - [ ] `app/(dashboard)/studio/raw/[artifactId]/route.ts` — streams artifact content; enforces `_assert_under(agent_root)`; CSP header on HTML responses.
 - [ ] `components/studio/Gallery.tsx` — grouped-by-run reverse-chronological list with phase badges.
-- [ ] `components/studio/Renderer.tsx` — mime dispatcher → `HtmlRenderer` (iframe sandbox), `MarkdownRenderer` (react-markdown + rehype-highlight), `JsonRenderer` (react-json-tree), `SvgRenderer` (DOMPurify), `CodeRenderer` (Monaco read-only, lazy).
+- [ ] `components/studio/Renderer.tsx` — mime dispatcher → `HtmlRenderer` (iframe sandbox), `MarkdownRenderer` (react-markdown + rehype-highlight; `<!--faro:diff-->` pragma routes through `lib/shiki-diff.ts`), `JsonRenderer` (react-json-view-lite v2), `SvgRenderer` (DOMPurify), `CodeRenderer` (Shiki server-rendered `<pre>`).
 - [ ] `components/studio/Provenance.tsx` — reads `pipeline_runs` + jsonl session, renders model + cost + duration + tool-call stream + linked `claim_decisions` if applicable.
 - [ ] `components/studio/Toolbar.tsx` — 6 actions: Open in Claude Code, Copy as prompt, Copy raw, Pop out, Highlight to comment, Promote to wiki.
 - [ ] `components/studio/HighlightBridge.tsx` — `postMessage` listener (origin + type validated); pre-fills prompt textbox with selected text + DOM selector.
@@ -971,11 +971,18 @@ Bundled with Track A; ships as one "faro feels finished" release.
 **2026-05-13 (iteration #2 — post Phase 2 ship, post 5-subagent research synthesis):**
 
 13. **Phase reorder.** New Phase 4 = Artifact Studio + Polish Pass (was Phase 5). New Phase 5 = Multi-agent + Langfuse (was Phase 4). Rationale: user wants the HTML/studio surface ASAP — markdown is fine for agent ↔ agent context but HTML earns its rendering cost the moment a human has to steer (per [the_unreasonable_effectiveness_of_html](../the_unreasonable_effectiveness_of_html.md)). Multi-agent + Langfuse can wait until canon multi-user demand actually arrives.
-14. **Studio shape: gallery + provenance + handoff, NOT IDE.** No file tree (faro's user has Claude Code one keystroke away — the cockpit primitive is grouped-by-run reverse-chronological list, per Manus / Replit Agent 4). No in-browser Monaco read-write editor (would make faro a second writer to artifacts that Claude Code owns on disk; creates sync conflicts). The only two-way primitive in v1 is **highlight-to-comment-back-into-prompt** (OpenAI Canvas pattern). Matches Anthropic's [Claude Design handoff-bundle loop](https://www.anthropic.com/news/claude-design-anthropic-labs) (Apr 17 2026). Locked after a 5-subagent research synthesis on 2026-05-13: in-browser editing recommendation reversed in favor of the gallery+handoff shape; user approved the pushback.
+14. **Studio shape: gallery + provenance + handoff, NOT IDE.** No file tree (faro's user has Claude Code one keystroke away — the cockpit primitive is grouped-by-run reverse-chronological list, per Manus / Replit Agent 4). No in-browser code editor at all (Monaco read-write was rejected first for the second-writer race with Claude Code; then dropped entirely in iteration #3 in favor of Shiki RSC for read-only viewing). The only two-way primitive in v1 is **highlight-to-comment-back-into-prompt** (OpenAI Canvas pattern). Matches Anthropic's [Claude Design handoff-bundle loop](https://www.anthropic.com/news/claude-design-anthropic-labs) (Apr 17 2026). Locked after a 5-subagent research synthesis on 2026-05-13: in-browser editing recommendation reversed in favor of the gallery+handoff shape; user approved the pushback.
 15. **Nav: vertical sidebar (shadcn `sidebar-07`) + 48px top bar with locator pill + ⌘K + Bell + ThemeToggle.** Replaces v0.1 horizontal `TopBar.tsx`. Top-bar locator helper-text dot-separated (`· local Claude daemon` vs `· pei (Tailscale Serve)`). Source of truth for the agent dropdown is `team-switcher.tsx` (shared between sidebar header and locator pill click). References: [Vercel dashboard redesign](https://vercel.com/changelog/dashboard-navigation-redesign-rollout), [Linear UI redesign](https://linear.app/now/how-we-redesigned-the-linear-ui), [Notion sidebar breakdown](https://medium.com/@quickmasum/ui-breakdown-of-notions-sidebar-2121364ec78d).
 16. **Provider chip system via `color-mix(in oklab, var(--brand) 12%, transparent)`.** 9 brands locked with `oklch` CSS vars in `globals.css` `@theme`: anthropic (`#D97757`), gemini (`#078EFA` + `#AD89EB`), supabase (`#3ECF8E`), openai (`#10A37F`), openrouter (`#6E40C9` — unverified, fallback documented), linear (`#5E6AD2`), slack (`#4A154B`), github (`#24292F`), vercel (`oklch(0.20 0 0)`). Linear-style 12% tint with 25% ring; never paint chips in pure brand color.
 17. **One mesh-gradient hero card only.** Subsidy KPI card gets a pure-CSS radial-gradient stack as `::before`, `mix-blend-mode: plus-lighter`, `opacity: 0.55`, no animation. Reject Three.js / OGL aurora (50–100kB JS, RSC-hostile). Scarcity = premium — apply this effect to one card, not everywhere.
 18. **Embla dreams carousel hot-fix shipped out-of-phase 2026-05-13.** `min-h-[360px]` (which Embla's Y-axis cannot use as a snap stride) → `h-[360px] shrink-0`; button disabled state rewired from local `index` to Embla's `canScrollPrev`/`canScrollNext` API + `reInit` listener. Not bundled into Phase 4 because user was actively testing dreams when the bug surfaced.
+
+**2026-05-13 (iteration #3 — Phase 4 mid-flight cleanup, post DESIGN.md gate):**
+
+19. **DESIGN.md gate locked** at [`faro/.claude/skills/artifacts/DESIGN.md`](.claude/skills/artifacts/DESIGN.md). 10 locked decisions: web-artifacts-builder skill pin (`b9e19e6`), Tailwind v3/v4 split accepted, `sandbox="allow-scripts"` alone (no `allow-same-origin`), `artifact_id = sha256(content_hash + run_id)[:16]`, no auto-prune in v1 (manual quarterly /artifact-gc deferred), 48/280/flex/320 studio shell, highlight bridge injected at bundle time, code renderer = Shiki RSC, all 5 emitters ship in main PR, B1 hard-cut before A4. Source of truth for any §6.6 / §15.3 conflict.
+20. **JSON viewer: `react-json-view-lite` v2.** Replaces `react-json-tree`. Reason: React 19 peer compatibility; `react-json-tree` maintenance is dormant. Bundle delta: negligible.
+21. **Code renderer: Shiki RSC.** Replaces Monaco entirely (not just read-only). Server-rendered `<pre>` via existing `lib/shiki-diff.ts`; no client bundle (~3MB saved vs Monaco); eliminates `worker-src` CSP carve-out documented in §3.2 of DESIGN.md. Trade-off: no in-place find-in-file or go-to-line — long files go through `[Open in Claude Code]` handoff per decision #14.
+22. **Recharts citation removed from §15.2.** PRD §7 already corrected Recharts → Tremor 3.18.7 in iteration #2; the lingering reference link was historical noise. Phase 4 full-bleed KPI charts use Tremor `<SparkAreaChart>` exclusively.
 
 ---
 
@@ -1067,7 +1074,7 @@ Bundled with Track A; ships as one "faro feels finished" release.
 - [Notion sidebar UI breakdown](https://medium.com/@quickmasum/ui-breakdown-of-notions-sidebar-2121364ec78d) — sidebar info density patterns.
 - Brand palettes: [Anthropic (mobbin)](https://mobbin.com/colors/brand/claude), [Gemini (brandarchive)](https://brandarchive.xyz/identity/gemini-google-2025), [Supabase](https://supabase.com/brand-assets), [OpenAI](https://openai.com/brand/), [Linear (mobbin)](https://mobbin.com/colors/brand/linear), [Slack PDF](https://a.slack-edge.com/0f43e/marketing/img/media-kit/Slack-Brand-Guidelines.pdf), [GitHub](https://colorcode.tools/brands/github).
 - Aurora / mesh: [Aceternity Aurora Background](https://ui.aceternity.com/components/aurora-background) (reference; rejected the JS-required version), [mesh gradient CSS guide](https://better-gradient.com/blog/mesh-gradient-css-guide).
-- Full-card charts: [Tremor SparkChart docs](https://www.tremor.so/docs/visualizations/spark-chart), [shadcn stats-sparkline block](https://www.shadcn.io/blocks/stats-sparkline), [Recharts gradient + overlay tips](https://leanylabs.com/blog/awesome-react-charts-tips/), [Stripe dashboard home charts pattern](https://support.stripe.com/questions/dashboard-home-charts-overview).
+- Full-card charts: [Tremor SparkChart docs](https://www.tremor.so/docs/visualizations/spark-chart), [shadcn stats-sparkline block](https://www.shadcn.io/blocks/stats-sparkline), [Stripe dashboard home charts pattern](https://support.stripe.com/questions/dashboard-home-charts-overview).
 - [`embla-carousel-react` API](https://www.embla-carousel.com/api/) — `canScrollPrev`/`canScrollNext` + `reInit` event used in the dreams-carousel fix.
 
 ### 15.3 Open questions for next iteration

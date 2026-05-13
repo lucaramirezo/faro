@@ -46,6 +46,22 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Phase 4 — Provider brand tokens (oklch, perceptual; theme-independent).
+     Tints are applied via color-mix(in oklab, var(--brand-X) <pct>%, transparent).
+     --brand-vercel + --brand-github are near-black; the chip primitive applies a
+     contrast carve-out (transparent bg + lifted-lightness text) on dark cards.
+     See components/ui/provider-chip.tsx. */
+  --brand-anthropic: oklch(0.68 0.16 38);     /* #D97757 */
+  --brand-gemini: oklch(0.62 0.21 247);       /* #078EFA */
+  --brand-gemini-2: oklch(0.69 0.18 305);     /* #AD89EB */
+  --brand-supabase: oklch(0.74 0.17 156);     /* #3ECF8E */
+  --brand-openai: oklch(0.61 0.14 168);       /* #10A37F */
+  --brand-openrouter: oklch(0.45 0.20 290);   /* #6E40C9 — unverified upstream brand hex */
+  --brand-linear: oklch(0.54 0.18 275);       /* #5E6AD2 */
+  --brand-slack: oklch(0.30 0.13 333);        /* #4A154B */
+  --brand-github: oklch(0.27 0.01 264);       /* #24292F */
+  --brand-vercel: oklch(0.20 0 0);
 }
 
 :root {

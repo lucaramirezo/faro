@@ -1,7 +1,7 @@
 import { UserAccountIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { ProviderChip } from "@/components/ui/provider-chip";
 
 export interface AccountCardProps {
   email: string | null;
@@ -65,9 +65,11 @@ export function AccountCard({
             <h3 className="text-sm font-semibold tracking-tight truncate">
               {displayName ?? email.split("@")[0]}
             </h3>
-            <Badge variant="outline" className="text-xs shrink-0">
-              {planLabel({ hasClaudeMax, hasClaudePro })}
-            </Badge>
+            <ProviderChip
+              provider="anthropic"
+              label={planLabel({ hasClaudeMax, hasClaudePro })}
+              className="shrink-0"
+            />
           </div>
           <p className="text-xs text-muted-foreground font-mono truncate">{email}</p>
         </div>

@@ -270,7 +270,7 @@ export function ReviewTray({ runId, decisionToken, initialClaims }: ReviewTrayPr
     <div className="grid gap-4 grid-cols-1 lg:grid-cols-[1fr_360px]">
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground tabular-nums">
             {pending.length} pending · {decided.length} decided · keys: J/K/A/T/D/U
           </p>
           <div className="flex items-center gap-2">

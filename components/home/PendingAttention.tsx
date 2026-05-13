@@ -23,7 +23,10 @@ export function PendingAttention({ items }: PendingAttentionProps) {
       ) : (
         <ul className="space-y-2">
           {items.map((it) => (
-            <li key={it.slice(0, 80)} className="text-sm text-foreground/90 leading-snug">
+            <li
+              key={it.slice(0, 80)}
+              className="text-sm text-foreground/90 leading-snug tabular-nums"
+            >
               {it}
             </li>
           ))}

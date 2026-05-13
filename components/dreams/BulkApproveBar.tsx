@@ -63,7 +63,13 @@ export function BulkApproveBar({ runId, category, pendingCount }: BulkApproveBar
         {CATEGORY_HEADER[category]}
       </h3>
       {pendingCount > 0 && (
-        <Button size="sm" variant="ghost" onClick={onClick} disabled={pending}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onClick}
+          disabled={pending}
+          className="tabular-nums"
+        >
           {pending ? "Approving..." : `Approve all ${pendingCount}`}
         </Button>
       )}

@@ -58,7 +58,7 @@ export function FinalizeDialog({
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle>Finalize dream</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="tabular-nums">
             Apply {appliedCount} decision{appliedCount === 1 ? "" : "s"} to memory.md;{" "}
             {deferredCount} pending claim
             {deferredCount === 1 ? "" : "s"} will be deferred. Proceed?

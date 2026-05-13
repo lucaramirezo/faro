@@ -28,7 +28,7 @@ export default async function DreamReviewPage({ params }: { params: Promise<{ ru
           <h1 className="text-xl font-semibold tracking-tight tabular-nums">{runId}</h1>
           <Badge variant="outline">{run.status}</Badge>
         </div>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground tabular-nums">
           {grouped.total} claim{grouped.total === 1 ? "" : "s"} · {grouped.pending.length} pending ·{" "}
           {grouped.decided.length} decided
         </p>

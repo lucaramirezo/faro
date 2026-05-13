@@ -90,6 +90,10 @@ export function extractRunIdFromPath(relativePath: string): string | null {
  * wiki artifacts grouped under `wiki/<slug>`". The artifacts table stores
  * NULL for wiki run_id (FK-safe); the gallery uses this helper to derive a
  * stable group label for both drafts (= run_id) and wiki (= `wiki-<slug>`).
+ *
+ * Also handles drafts artifacts whose directory name didn't match a real
+ * pipeline_runs row (manual / dogfood drops, run_id set to NULL by the
+ * scanner) — falls back to the path's own folder name as the group key.
  */
 export function groupKeyForArtifact(args: {
   run_id: string | null;
@@ -100,7 +104,9 @@ export function groupKeyForArtifact(args: {
   const rel = relative(args.agentRoot, args.path);
   const wikiMatch = rel.match(/^wiki\/artifacts\/([^/]+)\//);
   if (wikiMatch) return `wiki-${wikiMatch[1]}`;
-  return "wiki-unknown";
+  const draftsMatch = rel.match(/^drafts\/artifacts\/[^/]+\/([^/]+)\//);
+  if (draftsMatch) return `manual-${draftsMatch[1]}`;
+  return "manual";
 }
 
 async function walkDir(dir: string, out: string[]): Promise<void> {
@@ -149,6 +155,21 @@ export async function scanArtifacts(opts: ScanOpts = {}): Promise<ScanResult> {
   await walkDir(draftsRoot, files);
   await walkDir(wikiRoot, files);
 
+  // Precompute the set of valid run_ids so we can null-out any artifact whose
+  // directory name doesn't correspond to a real pipeline_runs row (ad-hoc
+  // artifacts like dogfood-* or manual drops). Without this the FK to
+  // pipeline_runs(run_id) fires SQLITE_CONSTRAINT_FOREIGNKEY at INSERT time
+  // and the scan throws on the first orphan.
+  let validRunIds: Set<string>;
+  try {
+    const rows = db.prepare("SELECT run_id FROM pipeline_runs").all() as { run_id: string }[];
+    validRunIds = new Set(rows.map((r) => r.run_id));
+  } catch {
+    // pipeline_runs may not exist on a fresh DB (slack_agent owns the table);
+    // fall back to "no runs known" so all artifacts get run_id = NULL.
+    validRunIds = new Set();
+  }
+
   const upsert = db.prepare(`
     INSERT INTO artifacts (
       artifact_id, run_id, profile_id, source, mime, path, label, emitter, bytes, content_hash, promoted_at
@@ -175,7 +196,11 @@ export async function scanArtifacts(opts: ScanOpts = {}): Promise<ScanResult> {
     const fileBytes = await readFile(absPath);
     const contentHash = createHash("sha256").update(fileBytes).digest("hex");
     const rel = relative(agentRoot, absPath);
-    const runId = extractRunIdFromPath(rel);
+    const rawRunId = extractRunIdFromPath(rel);
+    // Null out the run_id when we don't have a matching pipeline_runs row.
+    // The gallery still groups via groupKeyForArtifact, which falls back to
+    // a wiki-<slug> key from the path when run_id is null.
+    const runId = rawRunId && validRunIds.has(rawRunId) ? rawRunId : null;
     const artifactId = deriveArtifactId(contentHash, runId);
     const source: ArtifactSource = rel.startsWith("wiki/") ? "wiki" : "drafts";
     const emitter = classifyEmitter(rel);

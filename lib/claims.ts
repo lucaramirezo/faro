@@ -183,6 +183,8 @@ export function setClaimStatus({
   decidedBy,
   tweakText,
   reviewerNote,
+  tweakPatchJson,
+  parentClaimId,
 }: {
   runId: string;
   claimId: string;
@@ -190,6 +192,10 @@ export function setClaimStatus({
   decidedBy: string;
   tweakText?: string | null;
   reviewerNote?: string | null;
+  /** Encoded TweakPatch envelope JSON (schema_version + patch). */
+  tweakPatchJson?: string | null;
+  /** Set on merge-with patches; mirrors parent_claim_id FK. */
+  parentClaimId?: string | null;
 }): void {
   const db = getDb();
   db.prepare(
@@ -198,9 +204,32 @@ export function setClaimStatus({
             decided_at = CURRENT_TIMESTAMP,
             decided_by = ?,
             tweak_text = COALESCE(?, tweak_text),
-            reviewer_note = COALESCE(?, reviewer_note)
+            reviewer_note = COALESCE(?, reviewer_note),
+            tweak_patch = COALESCE(?, tweak_patch),
+            parent_claim_id = COALESCE(?, parent_claim_id)
       WHERE run_id = ? AND claim_id = ?`,
-  ).run(status, decidedBy, tweakText ?? null, reviewerNote ?? null, runId, claimId);
+  ).run(
+    status,
+    decidedBy,
+    tweakText ?? null,
+    reviewerNote ?? null,
+    tweakPatchJson ?? null,
+    parentClaimId ?? null,
+    runId,
+    claimId,
+  );
+}
+
+/**
+ * Fetch a single claim by composite key. Returns null if the row doesn't
+ * exist (e.g. stale claim_id from a UI that races a deletion).
+ */
+export function getClaim(runId: string, claimId: string): ClaimRow | null {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM claim_decisions WHERE run_id = ? AND claim_id = ? LIMIT 1")
+    .get(runId, claimId) as Record<string, unknown> | undefined;
+  return row ? rowToClaim(row) : null;
 }
 
 export function bulkSetClaimStatusForCategory({

@@ -119,11 +119,42 @@ ensureColumn("claim_decisions", "section_path_canonical", "TEXT");
 // promote_to ∈ {'skill', 'wiki', NULL}; NULL = not surfaced or not yet tagged.
 // Domain enforced at application layer (Zod in lib/claims.ts).
 ensureColumn("claim_decisions", "promote_to", "TEXT");
+// Phase 4.5 B4: TweakPatch envelope JSON, `{schema_version, patch}`.
+// Application-layer validated; SQLite stores the raw JSON string.
+ensureColumn("claim_decisions", "tweak_patch", "TEXT");
 
 db.exec(
   "CREATE INDEX IF NOT EXISTS idx_claim_decisions_parent ON claim_decisions(parent_claim_id)",
 );
 console.log("[faro] migrate: ensured idx_claim_decisions_parent");
+
+// Phase 4.5 C4: provider_calls — per-API-call ledger for cost accounting.
+// Open-ended `meta` JSON column (decision #4); recordCall writes from
+// lib/agent-sdk.ts (Sonnet rerun) and lib/image-gen.ts (Imagen / gpt-image-1).
+// Chat through Max-sub OAuth does NOT write rows (covered by the subscription).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS provider_calls (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts                    TEXT NOT NULL,
+    profile               TEXT NOT NULL,
+    feature               TEXT NOT NULL,
+    provider              TEXT NOT NULL,
+    model                 TEXT NOT NULL,
+    input_tokens          INTEGER,
+    output_tokens         INTEGER,
+    cached_input_tokens   INTEGER,
+    images                INTEGER,
+    cost_usd              REAL NOT NULL,
+    duration_ms           INTEGER,
+    run_id                TEXT,
+    meta                  TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_provider_calls_ts
+    ON provider_calls(ts);
+  CREATE INDEX IF NOT EXISTS idx_provider_calls_profile_feature
+    ON provider_calls(profile, feature, ts);
+`);
+console.log("[faro] migrate: ensured provider_calls table + indexes");
 
 const rows = db.prepare("SELECT COUNT(*) as n FROM claim_decisions").get() as { n: number };
 console.log(`[faro] migrate: claim_decisions has ${rows.n} rows`);

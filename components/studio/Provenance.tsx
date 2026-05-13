@@ -1,5 +1,10 @@
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
+import { Badge } from "@/components/ui/badge";
 import type { Artifact } from "@/lib/artifacts-types";
 import { getDb } from "@/lib/db";
+import { getProfile } from "@/lib/profiles";
+import { assertUnder } from "@/lib/security";
 
 /**
  * Provenance pane — shows what produced the artifact.
@@ -8,6 +13,12 @@ import { getDb } from "@/lib/db";
  * exists) model / cost / duration columns. The PRD §6.6 spec calls for tool-
  * call streaming from the jsonl session file — deferred to a follow-up
  * because it requires the jsonl reader API.
+ *
+ * Phase 4.5 A3: a "stale" chip surfaces when the file mtime exceeds the DB
+ * created_at — signal that the artifact has been re-emitted or hand-edited
+ * since indexing. The session jsonl isn't joined to runs by any column today,
+ * so the chip only considers the artifact file itself; richer staleness
+ * (cross-session edits) can land when pipeline_runs grows a session_id FK.
  */
 
 interface PipelineRunRow {
@@ -22,7 +33,7 @@ interface ProvenanceProps {
   artifact: Artifact;
 }
 
-export function Provenance({ artifact }: ProvenanceProps) {
+export async function Provenance({ artifact }: ProvenanceProps) {
   let run: PipelineRunRow | null = null;
   if (artifact.run_id) {
     const db = getDb();
@@ -43,6 +54,8 @@ export function Provenance({ artifact }: ProvenanceProps) {
     }
   }
 
+  const stale = await isStale(artifact);
+
   return (
     <div className="p-4 space-y-4 text-xs">
       <header className="space-y-1">
@@ -52,7 +65,7 @@ export function Provenance({ artifact }: ProvenanceProps) {
         </p>
       </header>
 
-      <Section title="Artifact">
+      <Section title="Artifact" trailing={stale ? <StaleBadge /> : null}>
         <Row label="id" value={artifact.artifact_id} mono />
         <Row label="mime" value={artifact.mime} mono />
         <Row label="emitter" value={artifact.emitter ?? "—"} />
@@ -85,10 +98,62 @@ export function Provenance({ artifact }: ProvenanceProps) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+async function isStale(artifact: Artifact): Promise<boolean> {
+  try {
+    const profile = getProfile();
+    const abs = artifact.path.startsWith("/")
+      ? artifact.path
+      : join(profile.agent_root, artifact.path);
+    const resolved = assertUnder(abs, profile.agent_root);
+    const st = await stat(resolved);
+    const createdAtMs = parseDbTimestamp(artifact.created_at);
+    if (!Number.isFinite(createdAtMs)) return false;
+    // 1s grace absorbs sub-second clock skew between the SQLite default
+    // CURRENT_TIMESTAMP and the file write that produced the row.
+    return st.mtimeMs - createdAtMs > 1000;
+  } catch {
+    // File missing, traversal-guarded, or unreadable — treat as "not stale"
+    // rather than crashing the pane; the path row already shows the missing
+    // location.
+    return false;
+  }
+}
+
+function parseDbTimestamp(s: string): number {
+  // SQLite CURRENT_TIMESTAMP returns 'YYYY-MM-DD HH:MM:SS' (UTC, no Z).
+  // Normalize to ISO-8601 UTC before parsing so it doesn't get interpreted
+  // as local time.
+  const iso = s.includes("T") ? s : s.replace(" ", "T");
+  return Date.parse(iso.endsWith("Z") ? iso : `${iso}Z`);
+}
+
+function StaleBadge() {
+  return (
+    <Badge
+      variant="outline"
+      className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+      title="Artifact file mtime is newer than its DB created_at — re-emitted or hand-edited."
+    >
+      stale
+    </Badge>
+  );
+}
+
+function Section({
+  title,
+  children,
+  trailing,
+}: {
+  title: string;
+  children: React.ReactNode;
+  trailing?: React.ReactNode;
+}) {
   return (
     <section className="space-y-2">
-      <h4 className="text-[10px] uppercase tracking-wide text-muted-foreground">{title}</h4>
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-[10px] uppercase tracking-wide text-muted-foreground">{title}</h4>
+        {trailing}
+      </div>
       <dl className="space-y-1">{children}</dl>
     </section>
   );

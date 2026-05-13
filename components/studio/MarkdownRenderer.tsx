@@ -15,10 +15,20 @@ interface MarkdownRendererProps {
  * applies the artifact CSP) and renders via react-markdown + remark-gfm
  * + rehype-highlight.
  *
- * The `<!--faro:diff-->` pragma is reserved for a follow-up pass that will
- * route diff regions through `lib/shiki-diff.ts`. For v1 we render plain
- * markdown and leave the pragma untouched in the output.
+ * The `<!--faro:diff-->` ... `<!--/faro:diff-->` pragma converts inner
+ * content into a fenced ```diff block, which rehype-highlight then renders
+ * with diff syntax colors. Lighter than wiring shiki-diff.ts across the
+ * server/client boundary (shiki-diff is server-only and this renderer is
+ * a client component); deferred to follow-up if richer diff rendering is
+ * needed.
  */
+function processFaroDiffPragma(text: string): string {
+  return text.replace(
+    /<!--\s*faro:diff\s*-->\s*([\s\S]*?)\s*<!--\s*\/faro:diff\s*-->/g,
+    (_match, body) => `\n\`\`\`diff\n${body.trim()}\n\`\`\`\n`,
+  );
+}
+
 export function MarkdownRenderer({ artifact }: MarkdownRendererProps) {
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +43,7 @@ export function MarkdownRenderer({ artifact }: MarkdownRendererProps) {
         return r.text();
       })
       .then((body) => {
-        if (!cancelled) setText(body);
+        if (!cancelled) setText(processFaroDiffPragma(body));
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "fetch error");

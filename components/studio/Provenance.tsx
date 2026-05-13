@@ -25,15 +25,21 @@ interface ProvenanceProps {
 export function Provenance({ artifact }: ProvenanceProps) {
   let run: PipelineRunRow | null = null;
   if (artifact.run_id) {
-    try {
-      const db = getDb();
+    const db = getDb();
+    // Guard against the pipeline_runs table being absent in older DBs (the
+    // artifacts table FK references it, so its presence is normally a given).
+    const tableExists = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pipeline_runs'")
+      .get() as { name: string } | undefined;
+    if (tableExists) {
+      // Explicit column list — surfaces a clear column error if the schema
+      // drifts, rather than swallowing it under a blanket try/catch.
       run =
-        (db.prepare("SELECT * FROM pipeline_runs WHERE run_id = ? LIMIT 1").get(artifact.run_id) as
-          | PipelineRunRow
-          | undefined) ?? null;
-    } catch {
-      // pipeline_runs may not have all columns we expect; degrade gracefully.
-      run = null;
+        (db
+          .prepare(
+            "SELECT run_id, model, cost_usd, duration_ms, started_at FROM pipeline_runs WHERE run_id = ? LIMIT 1",
+          )
+          .get(artifact.run_id) as PipelineRunRow | undefined) ?? null;
     }
   }
 

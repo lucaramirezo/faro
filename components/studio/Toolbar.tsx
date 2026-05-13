@@ -11,7 +11,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useTransition } from "react";
 import { toast } from "sonner";
-import { promoteArtifactAction } from "@/app/actions/artifacts";
+import { openInClaudeCodeAction, promoteArtifactAction } from "@/app/actions/artifacts";
 import { Button } from "@/components/ui/button";
 import type { Artifact } from "@/lib/artifacts-types";
 
@@ -20,9 +20,10 @@ import type { Artifact } from "@/lib/artifacts-types";
  *  [Open in Claude Code] [Copy as prompt] [Copy raw]
  *  [Pop out] [Highlight to comment] [Promote to wiki]
  *
- * For v1 the "Open in Claude Code" button always copies the
- * `claude --resume <run_id>` invocation; the laptop deep-link
- * (`vscode://file/...`) is deferred until platform detection is wired.
+ * "Open in Claude Code" platform-dispatches via openInClaudeCodeAction:
+ *   - Laptop  → navigates to `vscode://file/<absolute-path>`
+ *   - Pei     → copies `claude --resume <run_id>` to clipboard
+ * Detection happens server-side from the profile agent_root.
  *
  * "Copy raw" caps at 1 MB via Content-Length probe; over → toast asks user
  * to use "Pop out".
@@ -49,9 +50,23 @@ export function Toolbar({ artifact, highlightActive, onToggleHighlight }: Toolba
     }
   };
 
-  const onOpenClaude = () => {
-    const cmd = artifact.run_id ? `claude --resume ${artifact.run_id}` : `claude`;
-    void copy(cmd, "Resume invocation copied");
+  const onOpenClaude = async () => {
+    try {
+      const res = await openInClaudeCodeAction({ artifactId: id });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      if (res.kind === "vscode") {
+        // Navigate to vscode:// URL — VS Code opens (or browser prompts). On
+        // pei this branch never fires; agent_root tells us we're on laptop.
+        window.location.href = res.url;
+      } else {
+        await copy(res.text, "Resume invocation copied (no VS Code on pei)");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Open failed");
+    }
   };
 
   const onCopyAsPrompt = () => {

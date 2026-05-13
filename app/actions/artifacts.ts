@@ -109,6 +109,57 @@ export async function promoteArtifactAction(input: { artifactId: string }): Prom
   return { ok: true, newPath: relative(profile.agent_root, destPath) };
 }
 
+const OpenInClaudeCodeSchema = z.object({
+  artifactId: z.string().regex(ARTIFACT_ID_REGEX),
+});
+
+export type OpenInClaudeCodeResult =
+  | { ok: true; kind: "vscode"; url: string }
+  | { ok: true; kind: "copy"; text: string }
+  | { ok: false; error: string };
+
+/**
+ * Resolves the Open-in-Claude-Code behavior per platform (DESIGN.md §6.5).
+ *
+ * - Laptop (agent_root contains "projects/lwiki"): returns a
+ *   `vscode://file/<absolute-path>` URL — the client navigates and VS Code
+ *   opens the file locally.
+ * - Pei (agent_root is "/home/luca/lwiki/"): returns the
+ *   `claude --resume <run_id>` invocation — the client copies it to the
+ *   clipboard with a toast. vscode:// can't reach the laptop from pei.
+ *
+ * Detection via agent_root string match keeps the contract centralized
+ * (one source of truth = the profile YAML's agent_root).
+ */
+export async function openInClaudeCodeAction(input: {
+  artifactId: string;
+}): Promise<OpenInClaudeCodeResult> {
+  const parsed = OpenInClaudeCodeSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: `invalid input: ${parsed.error.message}` };
+  }
+  const profile = getProfile();
+  const artifact = getArtifact(parsed.data.artifactId, profile);
+  if (!artifact) {
+    return { ok: false, error: "artifact not found" };
+  }
+
+  const isLaptop = profile.agent_root.includes("projects/lwiki");
+
+  if (isLaptop) {
+    const absPath = join(profile.agent_root, artifact.path);
+    try {
+      assertUnder(absPath, profile.agent_root);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "path guard failed" };
+    }
+    return { ok: true, kind: "vscode", url: `vscode://file/${absPath}` };
+  }
+
+  const text = artifact.run_id ? `claude --resume ${artifact.run_id}` : "claude";
+  return { ok: true, kind: "copy", text };
+}
+
 const HighlightSchema = z.object({
   artifactId: z.string().regex(ARTIFACT_ID_REGEX),
   text: z.string().min(1).max(8192),

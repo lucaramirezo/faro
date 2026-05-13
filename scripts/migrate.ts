@@ -30,6 +30,25 @@ db.pragma("synchronous = NORMAL");
 db.pragma("busy_timeout = 5000");
 db.pragma("foreign_keys = ON");
 
+// pipeline_runs is owned by slack_agent on production (pei); slack_agent
+// creates it via its own bootstrap. On a fresh laptop dev DB the table is
+// missing, so any faro RSC that queries it (home page recent-dreams card,
+// Provenance JOIN, etc.) crashes with `SqliteError: no such table`. This
+// CREATE TABLE IF NOT EXISTS is a minimal stub: same column names the
+// faro queries reference, no destructive impact on a real slack_agent DB
+// because IF NOT EXISTS no-ops when the table already exists with more
+// columns.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS pipeline_runs (
+    run_id      TEXT PRIMARY KEY,
+    pipeline    TEXT NOT NULL,
+    run_date    TEXT,
+    status      TEXT,
+    draft_dir   TEXT,
+    profile_id  TEXT NOT NULL DEFAULT 'lwiki'
+  );
+`);
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS claim_decisions (
     claim_id      TEXT PRIMARY KEY,

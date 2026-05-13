@@ -10,13 +10,26 @@ function buildCspWithNonce(nonce: string): string {
   // scripts execute; strict-dynamic lets those scripts load further chunks
   // without an explicit allowlist. style-src keeps 'unsafe-inline' as a
   // Phase 2.1 residual — Tremor / Sonner / Radix all inject inline styles.
+  //
+  // Dev-only carve-outs: React Fast Refresh + Turbopack HMR rely on
+  // `eval()` and inline error overlays. Without them the dev server's
+  // hot-reload pipeline throws "eval() is not supported in this
+  // environment" the moment a component mounts. The carve-out is gated
+  // on NODE_ENV !== "production" so prod stays tight.
+  const isDev = process.env.NODE_ENV !== "production";
+  const scriptSrc = [
+    "'self'",
+    `'nonce-${nonce}'`,
+    "'strict-dynamic'",
+    ...(isDev ? ["'unsafe-eval'", "'unsafe-inline'"] : []),
+  ].join(" ");
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    `script-src ${scriptSrc}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    "connect-src 'self'",
+    `connect-src 'self'${isDev ? " ws: wss:" : ""}`,
     // 'self' (not 'none') so the studio's HtmlRenderer iframe can frame
     // /studio/raw/<id>. Both pages are served from the same origin.
     "frame-ancestors 'self'",

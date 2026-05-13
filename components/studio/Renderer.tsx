@@ -1,8 +1,9 @@
+"use client";
+
 import { Download04Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
 import type { Artifact } from "@/lib/artifacts-types";
-import { CodeRenderer } from "./CodeRenderer";
 import type { HighlightPayload } from "./HighlightBridge";
 import { HtmlRenderer } from "./HtmlRenderer";
 import { JsonRenderer } from "./JsonRenderer";
@@ -14,16 +15,23 @@ import { SvgRenderer } from "./SvgRenderer";
  * mime-typed sub-renderer (DESIGN.md §6.4). Unknown mimes fall back to a
  * download-only button that links to the raw endpoint.
  *
- * NOTE: `text/html` is the only mime with a highlight bridge — only the
- * sandboxed iframe can produce postMessage selection events. Other renderers
- * ignore `onHighlight`.
+ * NOTE: `text/x-code` requires server-only Shiki (CodeRenderer.tsx is RSC with
+ * `import "server-only"`). This dispatcher cannot import CodeRenderer because
+ * any "use client" parent dragging Renderer into the client bundle would pull
+ * server-only with it. So for code mime, the RSC parent pre-renders
+ * CodeRenderer and passes it via `codeNode`.
+ *
+ * `text/html` is the only mime with a highlight bridge — only the sandboxed
+ * iframe can produce postMessage selection events.
  */
 interface RendererProps {
   artifact: Artifact;
   onHighlight?: (h: HighlightPayload) => void;
+  /** Pre-rendered CodeRenderer output (RSC) for `text/x-code` artifacts. */
+  codeNode?: React.ReactNode;
 }
 
-export function Renderer({ artifact, onHighlight }: RendererProps) {
+export function Renderer({ artifact, onHighlight, codeNode }: RendererProps) {
   switch (artifact.mime) {
     case "text/html":
       return <HtmlRenderer artifact={artifact} onHighlight={onHighlight} />;
@@ -34,7 +42,7 @@ export function Renderer({ artifact, onHighlight }: RendererProps) {
     case "image/svg+xml":
       return <SvgRenderer artifact={artifact} />;
     case "text/x-code":
-      return <CodeRenderer artifact={artifact} />;
+      return codeNode ?? <DownloadFallback artifact={artifact} />;
     default:
       return <DownloadFallback artifact={artifact} />;
   }

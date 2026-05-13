@@ -1,5 +1,6 @@
 import { GitMergeIcon, Scissor01Icon, SparklesIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import { PromoteOverride } from "@/components/dreams/PromoteOverride";
 import { Badge } from "@/components/ui/badge";
 import type { ClaimRow } from "@/lib/claims-types";
 
@@ -52,6 +53,9 @@ export function ClaimCard({ claim }: { claim: ClaimRow }) {
           {evidencePath}
           {evidenceLine ? `:${evidenceLine}` : ""}
         </p>
+      )}
+      {claim.category === "surfaced" && (
+        <PromoteOverride runId={claim.run_id} claimId={claim.claim_id} current={claim.promote_to} />
       )}
     </div>
   );

@@ -3,7 +3,13 @@ import "server-only";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import type { ClaimCategory, ClaimRow, ClaimStatus, GroupedClaims } from "@/lib/claims-types";
+import type {
+  ClaimCategory,
+  ClaimRow,
+  ClaimStatus,
+  GroupedClaims,
+  PromoteTo,
+} from "@/lib/claims-types";
 import { getDb } from "@/lib/db";
 import { getProfile } from "@/lib/profiles";
 import { assertUnder } from "@/lib/security";
@@ -14,6 +20,7 @@ export {
   type ClaimRow,
   type ClaimStatus,
   type GroupedClaims,
+  type PromoteTo,
 } from "@/lib/claims-types";
 
 interface ClaimsJsonEntry {
@@ -23,6 +30,7 @@ interface ClaimsJsonEntry {
   section_path_canonical: string;
   claim_text: string;
   evidence?: unknown[];
+  promote_to?: PromoteTo;
 }
 
 const ClaimsFileSchema = z.object({
@@ -41,6 +49,9 @@ const ClaimsFileSchema = z.object({
       section_path_canonical: z.string(),
       claim_text: z.string(),
       evidence: z.array(z.unknown()).optional().default([]),
+      // Added in schema_version 2 (Phase 3). Optional + nullable so older
+      // schema_version 1 claims.json files still parse cleanly.
+      promote_to: z.enum(["skill", "wiki"]).nullable().optional(),
     }),
   ),
 });
@@ -88,8 +99,8 @@ export async function materializeClaimRows(runId: string): Promise<number> {
   const insert = db.prepare(
     `INSERT OR IGNORE INTO claim_decisions (
        claim_id, run_id, profile_id, category, section_path,
-       section_path_canonical, claim_text, evidence, status
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+       section_path_canonical, claim_text, evidence, status, promote_to
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
   );
   const tx = db.transaction((rows: ClaimsJsonEntry[]) => {
     let n = 0;
@@ -103,6 +114,7 @@ export async function materializeClaimRows(runId: string): Promise<number> {
         c.section_path_canonical,
         c.claim_text,
         JSON.stringify(c.evidence ?? []),
+        c.promote_to ?? null,
       );
       if (info.changes > 0) n++;
     }
@@ -138,6 +150,7 @@ function rowToClaim(raw: Record<string, unknown>): ClaimRow {
     decided_by: (raw.decided_by as string | null) ?? null,
     parent_claim_id: (raw.parent_claim_id as string | null) ?? null,
     superseded_at: (raw.superseded_at as string | null) ?? null,
+    promote_to: (raw.promote_to as PromoteTo) ?? null,
   };
 }
 
@@ -223,4 +236,60 @@ export function getPipelineRun(runId: string): PipelineRunRow | null {
     )
     .get(runId) as PipelineRunRow | undefined;
   return row ?? null;
+}
+
+export function setClaimPromoteTo({
+  runId,
+  claimId,
+  promoteTo,
+}: {
+  runId: string;
+  claimId: string;
+  promoteTo: PromoteTo;
+}): void {
+  const db = getDb();
+  db.prepare(
+    `UPDATE claim_decisions
+        SET promote_to = ?
+      WHERE run_id = ? AND claim_id = ?`,
+  ).run(promoteTo, runId, claimId);
+}
+
+export interface ApprovedSurfacedRow extends ClaimRow {
+  run_date: string;
+}
+
+export function getApprovedSurfacedClaimsWithPromote(): {
+  rows: ApprovedSurfacedRow[];
+  bySource: Record<"skill" | "wiki", ApprovedSurfacedRow[]>;
+} {
+  const profile = getProfile();
+  const db = getDb();
+  const raws = db
+    .prepare(
+      `SELECT cd.*, pr.run_date AS run_date
+         FROM claim_decisions cd
+         LEFT JOIN pipeline_runs pr ON pr.run_id = cd.run_id
+        WHERE cd.profile_id = ?
+          AND cd.status = 'approved'
+          AND cd.category = 'surfaced'
+          AND cd.promote_to IS NOT NULL
+        ORDER BY cd.decided_at DESC`,
+    )
+    .all(profile.profile) as Record<string, unknown>[];
+
+  const rows: ApprovedSurfacedRow[] = raws.map((r) => ({
+    ...rowToClaim(r),
+    run_date: String(r.run_date ?? ""),
+  }));
+
+  const bySource: Record<"skill" | "wiki", ApprovedSurfacedRow[]> = {
+    skill: [],
+    wiki: [],
+  };
+  for (const row of rows) {
+    if (row.promote_to === "skill") bySource.skill.push(row);
+    else if (row.promote_to === "wiki") bySource.wiki.push(row);
+  }
+  return { rows, bySource };
 }

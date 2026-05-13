@@ -29,6 +29,9 @@ const COMMANDS: Array<{
     href: "/integrations",
   },
   { id: "scheduled", label: "Go to Scheduled", hint: "/scheduled", href: "/scheduled" },
+  { id: "activity", label: "Go to Activity", hint: "/activity", href: "/activity" },
+  { id: "recommender", label: "Go to Recommender", hint: "/recommender", href: "/recommender" },
+  { id: "graph", label: "Go to Graph", hint: "/graph", href: "/graph" },
   { id: "settings", label: "Open Settings", hint: "/settings", href: "/settings" },
   { id: "profile", label: "Open profile", hint: "lwiki", href: "/home" },
 ];

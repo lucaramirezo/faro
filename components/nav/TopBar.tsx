@@ -1,8 +1,10 @@
 import {
   Activity01Icon,
   Brain02Icon,
+  BulbIcon,
   Calendar01Icon,
   CoinsDollarIcon,
+  ConnectIcon,
   Database01Icon,
   Home01Icon,
   PlugSocketIcon,
@@ -23,9 +25,10 @@ const NAV_ITEMS = [
   { href: "/memory", label: "Memory", icon: Database01Icon },
   { href: "/integrations", label: "Integrations", icon: PlugSocketIcon },
   { href: "/scheduled", label: "Scheduled", icon: Calendar01Icon },
+  { href: "/activity", label: "Activity", icon: Activity01Icon },
+  { href: "/recommender", label: "Recommender", icon: BulbIcon },
+  { href: "/graph", label: "Graph", icon: ConnectIcon },
 ] as const;
-
-const DISABLED_ITEMS = [{ href: "/activity", label: "Activity", icon: Activity01Icon }] as const;
 
 export function TopBar() {
   return (
@@ -35,10 +38,6 @@ export function TopBar() {
         <div className="flex items-center gap-1">
           {NAV_ITEMS.map((it) => (
             <NavLink key={it.href} href={it.href} label={it.label} icon={it.icon} />
-          ))}
-          <span className="mx-2 text-muted-foreground/30">·</span>
-          {DISABLED_ITEMS.map((it) => (
-            <NavLink key={it.href} href={it.href} label={it.label} icon={it.icon} disabled />
           ))}
         </div>
         <div className="flex items-center gap-2">

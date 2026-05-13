@@ -15,6 +15,8 @@ export const CLAIM_CATEGORIES: readonly ClaimCategory[] = [
   "surfaced",
 ] as const;
 
+export type PromoteTo = "skill" | "wiki" | null;
+
 export interface ClaimRow {
   claim_id: string;
   run_id: string;
@@ -36,6 +38,7 @@ export interface ClaimRow {
   decided_by: string | null;
   parent_claim_id: string | null;
   superseded_at: string | null;
+  promote_to: PromoteTo;
 }
 
 export interface GroupedClaims {

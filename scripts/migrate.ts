@@ -8,8 +8,8 @@
  *
  * Mirrors slack_agent/state.py:_ensure_pipeline_columns additive pattern.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import Database from "better-sqlite3";
 import { parse as parseYaml } from "yaml";
 
@@ -22,6 +22,7 @@ const profile = parseYaml(rawProfile) as { agent_root: string; state_db: string 
 const agentRoot = process.env.FARO_AGENT_ROOT ?? profile.agent_root;
 const dbPath = process.env.FARO_STATE_DB ?? join(agentRoot, profile.state_db);
 
+mkdirSync(dirname(dbPath), { recursive: true });
 console.log(`[faro] migrate: opening ${dbPath}`);
 const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");
@@ -71,6 +72,9 @@ ensureColumn("pipeline_runs", "profile_id", "TEXT NOT NULL DEFAULT 'lwiki'");
 ensureColumn("claim_decisions", "parent_claim_id", "TEXT");
 ensureColumn("claim_decisions", "superseded_at", "TIMESTAMP");
 ensureColumn("claim_decisions", "section_path_canonical", "TEXT");
+// promote_to ∈ {'skill', 'wiki', NULL}; NULL = not surfaced or not yet tagged.
+// Domain enforced at application layer (Zod in lib/claims.ts).
+ensureColumn("claim_decisions", "promote_to", "TEXT");
 
 db.exec(
   "CREATE INDEX IF NOT EXISTS idx_claim_decisions_parent ON claim_decisions(parent_claim_id)",

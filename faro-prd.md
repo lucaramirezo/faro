@@ -1,9 +1,9 @@
 # faro — Agent OS Control Center
 
 **Name:** faro (Spanish for *lighthouse*).
-**Version:** v0.1 — initial PRD.
-**Status:** Draft, pending `/plan-feature` on Phase 0.
-**Date:** 2026-05-12
+**Version:** v0.2 — Phase 4 rescope (Artifact Studio + Polish Pass).
+**Status:** Phases 0–2 SHIPPED. Phase 3 ready for `/plan-feature`. Phase 4 newly specced.
+**Date:** 2026-05-13 *(iteration #2; iteration #1 was commit `4f1da07` on 2026-05-12)*
 **Owner:** Luca; co-author: lwiki agent.
 **Location:** `faro/faro-prd.md` (relocated here from repo root as part of Phase 0 scaffolding).
 **Supersedes:** the dream-only scope of [`lwiki_ui/`](../lwiki_ui/) — retired at the end of Phase 1.
@@ -308,6 +308,54 @@ CREATE INDEX idx_claim_decisions_status ON claim_decisions(status, profile_id);
 4. **Finalize** button (enabled when ≥1 claim approved/tweaked) merges staging → `memory/memory.md`, archives the draft (same semantics as Python `apply_dream`), runs git commit. Unresolved claims roll into `deferred` and surface in tomorrow's dream input.
 5. Slack `[Approve all] [Deny all]` buttons keep working: bulk-stamp every pending claim with the chosen verb. Backward-compatible.
 
+### 5.6 Artifact storage + index *(added 2026-05-13, Phase 4)*
+
+Faro's artifact studio (see §6.6) reads from a single, append-only artifact index that mirrors files on disk. Markdown is the agent ↔ agent format; HTML earns the rendering cost wherever a human has to *steer* (per [the_unreasonable_effectiveness_of_html](../the_unreasonable_effectiveness_of_html.md)).
+
+**On-disk layout:**
+
+- `drafts/artifacts/<date>/<run_id>/**/*.{html,md,svg,json,code}` — agent-produced artifacts awaiting review (dream reports, briefs, plan grids, ingest reviews, wiki-lint triage). The canonical HTML artifact unit is `bundle.html` — a single self-contained file produced by Anthropic's [`web-artifacts-builder`](https://github.com/anthropics/skills/tree/main/skills/web-artifacts-builder) skill (React 18 + Vite + Parcel + `html-inline`, CSS/JS/data-URIs inlined).
+- `wiki/artifacts/<slug>/` — promoted artifacts (weekly status reports, locked plan grids, retros). Survive the dream lifecycle.
+- The two roots are NEVER mixed; `drafts/` is ephemeral, `wiki/` is durable.
+
+**SQLite index (NEW in Phase 4 migration):**
+
+```sql
+CREATE TABLE artifacts (
+  artifact_id   TEXT PRIMARY KEY,         -- sha256(profile_id + relative_path + content_hash)[:16]
+  run_id        TEXT,                     -- joins pipeline_runs.run_id; NULL for hand-promoted wiki artifacts
+  profile_id    TEXT NOT NULL DEFAULT 'lwiki',
+  source        TEXT NOT NULL,            -- 'drafts' | 'wiki'
+  mime          TEXT NOT NULL,            -- 'text/html' | 'text/markdown' | 'image/svg+xml' | 'application/json' | 'text/x-code'
+  path          TEXT NOT NULL,            -- absolute path
+  label         TEXT,                     -- human-readable: "Dream review — 2026-05-13"
+  emitter       TEXT,                     -- 'dreams' | 'brief' | 'plan-feature' | 'wiki-lint' | 'ingest' | 'slidev' | 'manual'
+  bytes         INTEGER NOT NULL,
+  content_hash  TEXT NOT NULL,            -- sha256 of file content
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  promoted_at   TIMESTAMP,                -- non-null when moved drafts → wiki
+  FOREIGN KEY (run_id) REFERENCES pipeline_runs(run_id)
+);
+CREATE INDEX idx_artifacts_run     ON artifacts(run_id, profile_id);
+CREATE INDEX idx_artifacts_emitter ON artifacts(emitter, profile_id, created_at DESC);
+CREATE INDEX idx_artifacts_source  ON artifacts(source, profile_id, created_at DESC);
+```
+
+**Scan protocol** (`lib/artifacts.ts`):
+
+1. On `/studio` route mount: walk `drafts/artifacts/` and `wiki/artifacts/` under the active profile's `agent_root`.
+2. For each file, compute `content_hash` (sha256), derive `artifact_id`, upsert into `artifacts` table. Skipped if `(artifact_id, content_hash)` already present.
+3. Emitter classification: lookup table by directory pattern (`drafts/artifacts/<date>/<run_id>/dream-report.html` → `dreams`, etc.).
+4. List view in the gallery filters by `profile_id` and groups by `run_id` (reverse-chronological); standalone-wiki artifacts get a synthetic `run_id = 'wiki-<slug>'`.
+
+**Lifecycle:**
+
+- Agents (dreams cron, brief cron, ingest skill, wiki-lint skill, plan-feature skill) write to `drafts/artifacts/...` and append a row.
+- The user, via the studio toolbar, can `[Promote to wiki]` an artifact — copies file to `wiki/artifacts/<slug>/`, sets `promoted_at`, writes a git commit ("artifact: promote `<label>`").
+- Prune policy: TBD — see §15.3 open question. Default in Phase 4: no auto-prune; quarterly manual sweep via a future `/artifact-gc` skill.
+
+**Security:** all bundle.html files are rendered in `<iframe sandbox>` (see §6.6.4). Path operations go through the existing `_assert_under` TS port.
+
 ---
 
 ## 6. Feature specification
@@ -382,16 +430,116 @@ Source for `pending your attention`: existing `memory/heartbeat.md` (parsed) + `
 - Bulk "Approve all N" per section — Server Action with single-row Linear-style Undo.
 - Finalize button enabled when `count(approved) + count(tweaked) >= 1`. Confirmation modal: "Apply 8 decisions; 9 deferred to next dream. Proceed?" → triggers TS port of `apply_dream` flow.
 
-### 6.5 Cross-cutting: nav + profile slug + command palette
+### 6.5 Cross-cutting: nav + profile slug + command palette *(refactored 2026-05-13, Phase 4 Track B1)*
 
-Top bar (Next.js root layout):
+**Replaces the v0.1 horizontal `TopBar` with a vertical sidebar + 48px top locator bar.** Reference: shadcn [`sidebar-07` block](https://ui.shadcn.com/blocks/sidebar) ships a `team-switcher.tsx` that maps directly to the agent/profile dropdown. The Vercel dashboard redesign + Linear + Notion all converge on this layout for multi-scope tools.
+
+**Layout shape:**
 
 ```
-faro/lwiki ● active      ⌘K   Home  Cost  Skills  Memory  Dreams  Integrations  Activity  ⚙
+┌─[sidebar 240px / collapsed 56px]──────┬─[48px top bar]──────────────────────────────────────┐
+│ ▾ luca / lwiki ● active               │ [☰] luca / lwiki  · local Claude daemon             │
+│ ── Today ──                           │                              ⌘K [search] [🔔] [☾]  │
+│   Home                                ├─────────────────────────────────────────────────────┤
+│   Dreams ●                            │                                                     │
+│   Cost                                │                                                     │
+│ ── Build ──                           │                  main content                       │
+│   Skills                              │                                                     │
+│   Studio  (new in Phase 4)            │                                                     │
+│   Memory                              │                                                     │
+│ ── Ops ──                             │                                                     │
+│   Integrations                        │                                                     │
+│   Scheduled                           │                                                     │
+│   Activity                            │                                                     │
+│ ────────                              │                                                     │
+│ ▾ @luca   ☾                           │                                                     │
+└───────────────────────────────────────┴─────────────────────────────────────────────────────┘
 ```
 
-- `faro/<profile_slug>` is a dropdown — v0.1 lists only `lwiki`. In v0.2: `lwiki ● active`, `refactor-canon ○ inactive`. Status pill reflects profile health (active = jsonl activity within last 24h).
-- `⌘K` opens `cmdk` command palette. v0.1 commands: "go to dream", "open profile", "copy as prompt for…".
+**Sidebar (`components/nav/Sidebar.tsx` — replaces `TopBar.tsx`):**
+
+- shadcn `sidebar-07` base — collapsible-to-icons. Expanded `--sidebar-width: 240px`; collapsed `56px`.
+- `SidebarHeader` = `team-switcher.tsx` for the agent dropdown. v0.1 lists `lwiki ● active`; v0.2 adds `refactor-canon ○ inactive`. Status pill reflects jsonl activity in the last 24h.
+- Three `SidebarGroup`s: **Today** (Home, Dreams, Cost), **Build** (Skills, Studio NEW, Memory), **Ops** (Integrations, Scheduled, Activity).
+- `SidebarFooter` = user avatar dropdown + theme toggle.
+
+**Top bar (`components/nav/TopLocator.tsx` — NEW):**
+
+- 48px height (`--header-height: calc(var(--spacing) * 12)`), sticky `top-0 z-10`, `border-b border-border/50`.
+- Slots (left → right):
+  - `[SidebarTrigger]` (collapse/expand chevron — shadcn ships this).
+  - **LocatorPill** — `<Button variant="ghost" size="sm">luca / lwiki <ChevronsUpDown/></Button>`. Clicking it opens the same profile dropdown as the sidebar's team-switcher (single source of truth).
+  - **Source helper** — dot-separated muted text to the right of the pill: `· local Claude daemon` (laptop) or `· pei (Tailscale Serve)` (server-rendered remote). Computed from auth-mode (§6.3 pill) + runtime detection.
+  - Spacer.
+  - **Search ⌘K** — invokes the existing `CommandPalette` at `components/nav/CommandPalette.tsx`. Add typeahead sources in Phase 4: skills, workspaces, recent artifacts, dream runs. Shows `⌘K` kbd badge.
+  - **Bell** — notification popover. Reads pending items from `memory/heartbeat.md` + `SELECT * FROM pipeline_runs WHERE status='pending'`. One-click "Open in studio" / "Open in dreams" per row.
+  - **ThemeToggle** — `next-themes` light/dark; dark stays default. Persists via cookie.
+
+**Command palette unchanged** — same component, additional sources. v0.1 commands kept ("go to dream", "open profile", "copy as prompt for…"); Phase 4 adds "open artifact <name>" and "send to Claude Code".
+
+### 6.6 Artifact Studio *(added 2026-05-13, Phase 4 Track A — centerpiece)*
+
+The studio is **gallery + provenance + handoff toolbar**, NOT a mini-IDE. Faro's user has Claude Code one keystroke away; in-browser editing would duplicate the writer and create sync conflicts with on-disk artifacts. This matches Anthropic's [Claude Design handoff-bundle pattern](https://www.anthropic.com/news/claude-design-anthropic-labs) (Apr 17 2026), Cursor Composer's per-artifact accept/reject, and Manus's atomic-evidence panel. See §14 decision 14 for the locked rationale.
+
+**Route:** `/studio` (alias `/artifacts`). Reads from the `artifacts` table (§5.6).
+
+**6.6.1 Three-pane layout**
+
+```
+┌─[gallery 240px]─────┬─[renderer flex]────────────────────────┬─[provenance 320px]──┐
+│ ▼ Dream 2026-05-13  │ [Open in Claude Code] [Copy as prompt] │ Run a18b2c — dreams │
+│   dream-report.html │ [Copy raw] [Pop out] [Highlight ▸]     │ • model: opus-4-7   │
+│   claims.json       │                                        │ • cost: $0.42       │
+│ ▼ Brief 2026-05-13  │ ┌─[iframe sandbox]───────────────────┐ │ • duration: 3m 12s  │
+│   brief.html        │ │                                    │ │                     │
+│ ▼ Ingest a1c3       │ │      rendered bundle.html          │ │ tool calls:         │
+│   ingest-review     │ │      (Embla carousel, sliders…)    │ │ • Read memory.md    │
+│ ▼ Wiki-lint b4d2    │ │                                    │ │ • Read raw/2026-…   │
+│   triage.html       │ └────────────────────────────────────┘ │ • Write dream-…html │
+└─────────────────────┴────────────────────────────────────────┴─────────────────────┘
+```
+
+- **Left pane (240px) — gallery.** Reverse-chronological list of artifacts, grouped by `run_id`. Each group shows the emitter name (dreams / brief / plan-feature / wiki-lint / ingest) and a phase badge (Replit Agent 4 pattern). Standalone wiki artifacts grouped under `wiki/<slug>`. Filter by profile (active profile only by default). No file tree — flat list is the cockpit primitive.
+- **Center pane (flex) — mime-typed renderer.** Picked by `mime` column:
+  - `text/html` → `<iframe sandbox="allow-scripts allow-same-origin" src="/studio/raw/<artifact_id>">`. The raw endpoint streams the file with a Content-Security-Policy header restricting external network access.
+  - `text/markdown` → `react-markdown` + `rehype-highlight`; existing `lib/shiki-diff.ts` reused for diff regions.
+  - `image/svg+xml` → inline (sanitized via `DOMPurify`).
+  - `application/json` → `react-json-tree` (lighter weight than `react-json-view`).
+  - `text/x-code` → `@monaco-editor/react` **read-only**; lazy-loaded so it doesn't block RSC streaming.
+- **Right pane (320px, collapsible) — provenance.** Reads from `pipeline_runs` joined with the originating jsonl session telemetry (existing `lib/jsonl.ts`). Renders: model + cost + duration, tool-call stream (with file paths linked into VS Code via `vscode://` URLs), and `claim_decisions` if this artifact is a dream report. Mirrors Manus's "Computer" pattern: *what the agent did to produce this artifact*.
+
+**6.6.2 Toolbar (top of center pane)**
+
+| Action | Behavior |
+|---|---|
+| **[Open in Claude Code]** | Deep-link: on laptop, opens VS Code via `vscode://file/<artifact_path>` and copies a pre-filled prompt to the clipboard with a Sonner toast. On pei (no local Code), copies a `claude --resume <run_id>` invocation to clipboard. |
+| **[Copy as prompt]** | Handoff bundle, mirrors Claude Design's "send to Claude Code" loop. Template: `"In [artifact_path], <user description placeholder>. Context: emitted by <emitter> at <created_at> for run <run_id>."` |
+| **[Copy raw]** | Raw file content to clipboard. |
+| **[Pop out]** | Opens `/studio/raw/<artifact_id>` in a new tab (HTML only; non-HTML uses a `download` action). |
+| **[Highlight to comment]** | Drag-select inside the iframe → child posts `{type: 'faro:highlight', text, selector}` via `postMessage` → parent drops the selection into a textbox → "Send to Claude Code" pre-fills a prompt scoped to the selection. **This is the only two-way primitive in v1.** OpenAI Canvas's pattern, adapted for the cockpit. |
+| **[Promote to wiki]** | Moves the artifact from `drafts/artifacts/...` to `wiki/artifacts/<slug>/`, sets `artifacts.promoted_at`, git commit. Confirmation modal. |
+
+**6.6.3 Phase-4 HTML emitters (the canonical list of where HTML lives)**
+
+| Use case | Emitter | Today | Phase 4 output |
+|---|---|---|---|
+| Dream review | [`dreams/dream.py`](../dreams/dream.py) | `dream-report.md` + `claims.json` (Phase 1 sidecar) | + `dream-report.html` — rubric sliders, side-by-side current/proposed `memory.md` diff, promote/edit/reject kanban |
+| Morning brief | [`heartbeat/morning_brief.py`](../heartbeat/morning_brief.py) (check existence) | MD via heartbeat | `brief.html` — triage kanban (Now/Later/Drop), pending-approvals list, heartbeat delta strip |
+| Planning | `/plan-feature` skill | MD plan | `plan-approaches.html` — Thariq's N-approaches grid with tradeoff labels + "lock approach #N" copy-back |
+| Presentations | existing `slidev` skill | Slidev MD | Register Slidev HTML deck as artifact type (no new emitter; just index it) |
+| **Wiki-lint triage** *(NEW)* | `/wiki-lint` skill | MD report | Severity-grouped HTML with Fix/Defer/Ignore per finding + inline proposed-patch diff |
+| **Ingest review** *(NEW)* | `/ingest` skill | MD digest | Source-digest left pane + proposed-pages right pane (frontmatter editable inline) + wikilink-graph edge diff (new green / contradicted red) + accept-per-page checkboxes |
+| Weekly status | `/weekly-status` skill (NEW, optional) | none | `weekly-status.html` — banked patterns, 24h/72h winners (Shann's pattern), voice rules with example diffs |
+
+The ingest review is the highest-leverage NEW use case: it's the single most-repeated approval moment in lwiki, currently a markdown wall.
+
+**6.6.4 Security**
+
+- Bundle.html iframes use `sandbox="allow-scripts allow-same-origin"` — no top-navigation, no forms-to-origin, no popups.
+- `/studio/raw/<artifact_id>` route enforces `path` is under the active profile's `agent_root` via the existing `_assert_under` TS port (see §8.2). 403 on traversal.
+- Content-Security-Policy header on raw responses: `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'` — bundle.html is fully self-contained per the `web-artifacts-builder` contract, so external connectivity is denied.
+- `postMessage` handler validates `origin === window.location.origin` and `event.data.type === 'faro:highlight'`; drops everything else.
+- Artifacts table writes go through the same `_git_commit_state_change` audit trail as claim decisions.
 
 ---
 
@@ -429,6 +577,22 @@ faro/lwiki ● active      ⌘K   Home  Cost  Skills  Memory  Dreams  Integratio
 | CI/CD | **GitLab CI** for build + mirror (primary), **GitHub Actions** for OSS readers only | — | Primary CI stays on self-hosted GitLab. |
 | Production deploy | systemd unit on pei, `node .next/standalone/server.js` on `:8766`, fronted by `tailscale serve --https=8443` | — | One process. Tailscale Serve injects `Tailscale-User-Login` directly to Node. |
 
+**Phase 4 additions (Artifact Studio + Polish Pass, added 2026-05-13):**
+
+| Layer | Choice | Version | Rationale |
+|---|---|---|---|
+| Sidebar block | **shadcn `sidebar-07`** | latest | Ships `team-switcher.tsx` for the agent dropdown; collapsible-to-icons. [Block ref](https://ui.shadcn.com/blocks/sidebar). |
+| Theme | **`next-themes`** | latest | Standard shadcn pattern; cookie-persisted. |
+| HTML iframe sandbox | native `<iframe sandbox>` + `postMessage` | — | No new lib; CSP already in place. Sandbox flags: `allow-scripts allow-same-origin` only. |
+| Markdown renderer | **`react-markdown`** + `rehype-highlight` | latest | Existing Shiki via `lib/shiki-diff.ts` reused for diff regions. |
+| JSON viewer | **`react-json-tree`** | latest | Lighter than `react-json-view`; RSC-safe. |
+| Code viewer (read-only) | **`@monaco-editor/react`** | latest | Lazy-loaded; better than Shiki for long files; read-only mode prevents second-writer race with Claude Code. |
+| SVG sanitizer | **`DOMPurify`** | latest | Required before inline SVG render. |
+| Mesh gradient | CSS-only radial-gradient stack | — | No Three.js, no canvas; RSC-safe; static (no animation). |
+| Charts (full-bleed) | Existing Recharts via shadcn `Chart` block | — | `<Area>` filling card + left-to-right scrim trick. Shipped pattern in shadcn `stats-sparkline`. |
+| Provider icons | hugeicons (already loaded) + per-brand SVG registry under `components/ui/provider-icons/` | — | Avoid CDN; brand assets committed locally. |
+| Artifact bundler skill | Anthropic [`web-artifacts-builder`](https://github.com/anthropics/skills/tree/main/skills/web-artifacts-builder) | latest | Installed at project scope in Phase 4. React 18 + Vite + Parcel + `html-inline` → single `bundle.html`. |
+
 **Explicit non-choices:**
 
 - ❌ **Hybrid D (FastAPI + Basecoat + islands)** — reopened and rejected 2026-05-12. Basecoat is Luma-flavored, not true Luma. User directive: "perfect fit".
@@ -436,6 +600,10 @@ faro/lwiki ● active      ⌘K   Home  Cost  Skills  Memory  Dreams  Integratio
 - ❌ Astro 5 — viable but smaller community for dashboard pattern; Next.js wins on midday-ai/v1 cribbing.
 - ❌ Phoenix LiveView / DatastarUI / Hermes-webui fork — language rewrites or wrong runtime.
 - ❌ McCavity/claude-code-dashboard fork — license unclear; reference architecture only.
+- ❌ **Three.js / OGL aurora** for hero cards *(2026-05-13)* — 50–100kB JS, requires `"use client"`, breaks RSC streaming. CSS radial-gradient stack achieves the same look with zero JS.
+- ❌ **Monaco read-write in the studio** *(2026-05-13)* — would make faro a second writer to artifacts that Claude Code owns on disk; creates sync conflicts. Monaco stays read-only; editing goes through `[Open in Claude Code]` handoff.
+- ❌ **File tree in the studio** *(2026-05-13)* — faro is a cockpit, not an IDE; the user has Claude Code one keystroke away. Reverse-chronological grouped-by-run list is the cockpit primitive (Manus/Replit Agent 4 pattern).
+- ❌ **In-browser real-time collaboration** *(2026-05-13)* — single-user system; no Yjs/Liveblocks/CRDTs.
 
 ---
 
@@ -601,7 +769,7 @@ Used for per-claim mutations (faster than route handlers for form-driven actions
 - 403 returned when `Tailscale-User-Login` header is absent.
 - `git push origin main` triggers GitLab CI mirror job, GitHub `lucaramirezo/faro` updates.
 
-### Phase 1 — MVP (~5d)
+### Phase 1 — MVP (~5d) — **SHIPPED 2026-05-12 (commit `cd91343`)**
 
 **Goal:** Home + Subscription + Plan limits + Sharded Dreams. Cut over from `lwiki_ui/` to faro.
 
@@ -625,9 +793,11 @@ Used for per-claim mutations (faster than route handlers for form-driven actions
 
 **Validation:** end of day 5, Luca opens faro, sees subsidy KPI, reviews today's dream claim-by-claim, finalizes; stale Phase-5 line is gone. Slack flow regression test passes. `lwiki_ui` is gone from systemd.
 
-### Phase 2 — Skills + Memory + Integrations + Scheduled tasks (~4d)
+### Phase 2 — Skills + Memory + Integrations + Scheduled tasks (~4d) — **SHIPPED 2026-05-13 (commit `080dd3c`)**
 
 **Goal:** the four inventory panels. Delete archived `lwiki_ui/` after stability window.
+
+> Tested 2026-05-13; small tweaks ongoing (integrations status probe + weekly plan-limit bar fixed in `d39bad3`). No PRD changes required.
 
 **Deliverables:**
 
@@ -661,33 +831,82 @@ Used for per-claim mutations (faster than route handlers for form-driven actions
 
 (per Luca's note 2026-05-12: research clawhub + DESIGN.md gate before execute)
 
-### Phase 4 — Multi-agent + (optional) Langfuse (~3d)
+### Phase 4 — Artifact Studio + Polish Pass (~5–6d) *(NEW 2026-05-13; was Phase 5)*
 
-**Goal:** profile switcher + (if demanded) shared trace backbone.
+**Goal:** ship the persistent HTML control surface promised in §0 — turn faro from "feature-complete" to "feels finished." Two parallel tracks: A) the centerpiece artifact studio, B) navigation + visual polish pass. Single coherent release.
+
+#### Track A — Artifact Studio (~3d)
+
+Centerpiece. See §6.6 for the full spec.
 
 **Deliverables:**
 
-- [ ] Profile switcher in nav — real, lists discovered `faro/profiles/*.yml`.
-- [ ] `refactor-canon` profile YAML (placement: faro/profiles/refactor-canon.yml OR canon repo — decide).
-- [ ] Profile-scoped queries — every panel reads `profile_id`-filtered data.
-- [ ] (If multi-user demanded) Caddy + Keycloak OIDC route; per-profile ACL.
+- [ ] **Migration**: `scripts/migrate.ts` adds the `artifacts` table (§5.6) with `(artifact_id, run_id, profile_id, source, mime, path, label, emitter, bytes, content_hash, created_at, promoted_at)` + indexes.
+- [ ] `lib/artifacts.ts` — disk scanner + index sync; emitter classifier; mime sniffer.
+- [ ] `app/(dashboard)/studio/page.tsx` — three-pane RSC layout (gallery / renderer / provenance). Client island for `postMessage` highlight handler + Monaco lazy-load.
+- [ ] `app/(dashboard)/studio/raw/[artifactId]/route.ts` — streams artifact content; enforces `_assert_under(agent_root)`; CSP header on HTML responses.
+- [ ] `components/studio/Gallery.tsx` — grouped-by-run reverse-chronological list with phase badges.
+- [ ] `components/studio/Renderer.tsx` — mime dispatcher → `HtmlRenderer` (iframe sandbox), `MarkdownRenderer` (react-markdown + rehype-highlight), `JsonRenderer` (react-json-tree), `SvgRenderer` (DOMPurify), `CodeRenderer` (Monaco read-only, lazy).
+- [ ] `components/studio/Provenance.tsx` — reads `pipeline_runs` + jsonl session, renders model + cost + duration + tool-call stream + linked `claim_decisions` if applicable.
+- [ ] `components/studio/Toolbar.tsx` — 6 actions: Open in Claude Code, Copy as prompt, Copy raw, Pop out, Highlight to comment, Promote to wiki.
+- [ ] `components/studio/HighlightBridge.tsx` — `postMessage` listener (origin + type validated); pre-fills prompt textbox with selected text + DOM selector.
+- [ ] **Install Anthropic skill** [`web-artifacts-builder`](https://github.com/anthropics/skills/tree/main/skills/web-artifacts-builder) at project scope — React 18 + Vite + Parcel + `html-inline` → single `bundle.html`. Lock to a specific commit in the skill repo.
+- [ ] **HTML emitters** (per §6.6.3 table):
+  - [ ] `dreams/dream.py` — emit `dream-report.html` alongside existing `dream-report.md` + `claims.json`.
+  - [ ] `heartbeat/morning_brief.py` — emit `brief.html` (audit if file exists; create if not).
+  - [ ] `/plan-feature` skill — emit `plan-approaches.html` (Thariq's N-approaches grid).
+  - [ ] `/wiki-lint` skill — emit `triage.html` (severity-grouped + Fix/Defer/Ignore + proposed-patch diffs).
+  - [ ] `/ingest` skill — emit `ingest-review.html` (source-digest left, proposed-pages right, wikilink-graph edge diff). **Highest leverage NEW emitter.**
+  - [ ] Register existing Slidev exports as artifact type (no new emitter).
+- [ ] **Phase gate (kept from former Phase 5):** before /execute on the studio, draft `faro/.claude/skills/artifacts/DESIGN.md` capturing:
+  - Bundle-builder pinning policy (skill commit + Parcel + html-inline versions)
+  - Shared `faro/design-tokens.yml` consumed by both Tailwind config and `web-artifacts-builder`
+  - Iframe CSP exact directives + `postMessage` schema
+  - Artifact-id stability (sha256 of content vs run_id+path — see §15.3)
+  - Prune policy for `drafts/artifacts/` (see §15.3)
+
+**Validation Track A:** Open `/studio`. Today's dream emits both `dream-report.md` and `dream-report.html`; the HTML renders inside a sandboxed iframe with rubric sliders. Click [Highlight to comment], drag-select, hit "Send to Claude Code" — clipboard contains the pre-filled prompt. Click [Promote to wiki] on the brief.html — file moves to `wiki/artifacts/<slug>/`, git commit lands.
+
+#### Track B — Polish Pass (~2–3d)
+
+Bundled with Track A; ships as one "faro feels finished" release.
+
+- [ ] **B1. Nav rebuild** — replace `components/nav/TopBar.tsx` with `components/nav/Sidebar.tsx` (shadcn [`sidebar-07`](https://ui.shadcn.com/blocks/sidebar)) and new `components/nav/TopLocator.tsx`. See §6.5 for the full spec.
+  - [ ] `Sidebar.tsx` — `SidebarHeader` = `team-switcher.tsx` (agent dropdown); three groups (Today / Build / Ops); `SidebarFooter` = avatar + theme toggle.
+  - [ ] `TopLocator.tsx` — 48px sticky bar with `[SidebarTrigger] [LocatorPill] · [source-helper] · · · [Search ⌘K] [Bell] [ThemeToggle]`.
+  - [ ] `components/nav/LocatorPill.tsx` — Vercel-style scope pill; shares state with team-switcher.
+  - [ ] `components/nav/NotificationBell.tsx` — popover; reads `memory/heartbeat.md` + pending `pipeline_runs`.
+  - [ ] `components/nav/ThemeToggle.tsx` — `next-themes`.
+  - [ ] Update `app/(dashboard)/layout.tsx` to the sidebar + top-locator grid.
+- [ ] **B2. Provider chip system.**
+  - [ ] Add brand `oklch` CSS vars to `app/globals.css` `@theme` for: anthropic (`#D97757`), gemini (`#078EFA` + `#AD89EB`), supabase (`#3ECF8E`), openai (`#10A37F`), openrouter (`#6E40C9` — unverified), linear (`#5E6AD2`), slack (`#4A154B`), github (`#24292F`), vercel (`oklch(0.20 0 0)`).
+  - [ ] `components/ui/provider-chip.tsx` — `<ProviderChip provider="anthropic" />`; tint pattern `bg-[color-mix(in_oklab,var(--brand-anthropic)_12%,transparent)] text-[var(--brand-anthropic)] ring-[color-mix(in_oklab,var(--brand-anthropic)_25%,transparent)]`. Auto-resolves icon from `components/ui/provider-icons/<slug>.svg` registry.
+  - [ ] Wire into auth-mode pill (cost page), KPI cards (when a provider is the source), studio gallery (artifact emitter chip).
+- [ ] **B3. Home KPI full-bleed chart cards.**
+  - [ ] Refactor `components/home/KpiCard.tsx`: drop `w-24 h-12` sparkline → `<Card className="relative overflow-hidden h-32">` with full-bleed Recharts `<Area>` + left-to-right scrim `bg-gradient-to-r from-card via-card/70 to-transparent` + `tabular-nums` KPI overlay.
+  - [ ] Apply to all three home KPIs (today $, this week $, subsidy this week).
+- [ ] **B4. Mesh-gradient hero card** — apply ONLY to the subsidy KPI card (the §10 wedge). Pure CSS radial-gradient stack as `::before`, `mix-blend-mode: plus-lighter`, `opacity: 0.55`, no animation. Reject Three.js (see §7 non-choices).
+- [ ] **B5. Tabular-nums sweep** — `font-variant-numeric: tabular-nums` on every numeric span across home, cost, dreams pages.
+- [x] **B6. Embla dreams carousel arrow fix** — `min-h-[360px]` → `h-[360px] shrink-0`, button disabled state wired to `canScrollPrev/canScrollNext` + `reInit` listener. **Hot-fixed 2026-05-13 in `components/dreams/EmblaCarousel.tsx` (not yet committed).**
+
+**Validation Track B:** Open faro on laptop. Sidebar collapses to icons (56px). Top bar shows `luca / lwiki · local Claude daemon`. ⌘K finds artifacts + skills + dream runs. Bell popover lists pending items from heartbeat. Theme toggle persists across reloads. Subsidy KPI card has a subtle aurora-feel mesh background, full-bleed area chart, tabular numbers. Provider chips on the cost page render Anthropic in tinted orange, OpenRouter in tinted purple.
+
+**Phase gate:** before `/execute`, the §6.6 spec and §5.6 schema must pass review on (a) iframe sandbox flags + CSP, (b) artifact-id stability strategy (§15.3 open), (c) `web-artifacts-builder` skill version pin.
+
+### Phase 5 — Multi-agent + (optional) Langfuse (~3d) *(was Phase 4; swapped 2026-05-13)*
+
+**Goal:** profile switcher activated for canon + (if demanded) shared trace backbone.
+
+**Deliverables:**
+
+- [ ] Profile switcher in nav — real, lists discovered `faro/profiles/*.yml`. Uses the same `team-switcher.tsx` already shipped in Phase 4 Track B1; v0.1 inert dropdown becomes live.
+- [ ] `refactor-canon` profile YAML (placement: `faro/profiles/refactor-canon.yml` OR canon repo — decide; see §15.3 open).
+- [ ] Profile-scoped queries — every panel reads `profile_id`-filtered data. Migrations are additive; v0.1 already baked `profile_id` columns.
+- [ ] Studio scoping — gallery filter respects active profile; cross-profile view is a future enhancement.
+- [ ] (If multi-user demanded) Caddy + Keycloak OIDC route; per-profile ACL on `Tailscale-User-Login` allowlist.
 - [ ] (If trace demanded) Langfuse v3 self-host on pei via Docker Compose; Claude Code OTEL exporter pointed at it; `app/(dashboard)/sessions/page.tsx` embeds Langfuse iframe inline.
 
-**Validation:** switch profile, every panel rescopes; canon-bot writes traces faro can browse.
-
-### Phase 5 — Rich-artifact pipeline (~2d)
-
-**Goal:** Thariq's HTML thesis applied at vault-scale.
-
-**Deliverables:**
-
-- [ ] Install [`web-artifacts-builder`](https://github.com/anthropics/skills/tree/main/skills/web-artifacts-builder) at project scope.
-- [ ] Optional `dream-report.html` emission alongside `dream-report.md`.
-- [ ] `app/(dashboard)/artifacts/page.tsx` — index of all `bundle.html` artifacts under `drafts/` and `wiki/artifacts/`.
-- [ ] `/weekly-status` artifact-generator skill.
-- [ ] Dream Review page toggles between MD report and HTML artifact when both exist.
-
-**Phase gate:** draft `faro/.claude/skills/artifacts/DESIGN.md` first (do exploration with subagents on this before, best practices for anthropic, some examples, google stitvh and similar info that may be relevant).
+**Validation:** switch profile in the team-switcher, every panel rescopes including the studio gallery; canon-bot writes traces faro can browse.
 
 ---
 
@@ -720,6 +939,12 @@ Used for per-claim mutations (faster than route handlers for form-driven actions
 | GitHub mirror leaks private memory accidentally | Med | High | Subtree push only `faro/` — `memory/`, `raw/`, `wiki/` NEVER cross the boundary. Verify with first manual push. CI job has explicit `--prefix=faro/` flag; no `--all`. |
 | Caddy + Tailscale-User-Login header forwarding subtle | Low | Med | Explicit `header_up` directive; integration test in Phase 0 hits faro through Tailscale + Caddy chain. |
 | Token cost explosion on bundled HTML artifacts | Low | Low | 2–4× MD cost per Thariq; only for high-value artifacts; hard-cap via SDK `max_tokens`. |
+| **Iframe sandbox + `postMessage` XSS surface** *(Phase 4)* | Low | High | Sandbox flags `allow-scripts allow-same-origin` only — no `allow-top-navigation`, no `allow-forms`, no `allow-popups`. CSP on `/studio/raw` denies `connect-src`. `postMessage` handler validates `origin` + message `type` strictly. E2E test in Phase 4 hits a hostile bundle.html to verify isolation. |
+| **`artifacts` table growth** *(Phase 4)* | High | Low | No auto-prune in Phase 4; manual quarterly sweep. Index on `(emitter, profile_id, created_at DESC)` keeps gallery queries fast at 10K+ rows. §15.3 open question tracks prune policy. |
+| **bundle.html size on the wire** *(Phase 4)* | Med | Low | `web-artifacts-builder` inlines data URIs which can balloon files. Cap at 5MB per bundle in the emitter wrapper; surface a "this artifact is large" warning in the gallery if `bytes > 1MB`. |
+| **Provider-chip palette drift** *(Phase 4)* | Low | Low | Brand hexes are committed as `oklch` CSS vars in one place (`globals.css` `@theme`); never inlined per-component. Annual brand audit OR on user request. OpenRouter hex is unverified — fallback documented in source comment. |
+| **shadcn `sidebar-07` upstream drift** *(Phase 4)* | Med | Low | Pin via `shadcn/create` snapshot at the start of Phase 4 Track B; re-pull on next PRD iteration. Layout-level component, so drift is visible immediately. |
+| **`postMessage` highlight feature breaks on cross-origin bundles** *(Phase 4)* | Med | Med | Bundle.html is served from same origin (`/studio/raw/<id>`), so `origin` check passes. If a future feature hosts artifacts on a separate subdomain, the highlight bridge needs an explicit origin allowlist. |
 
 ---
 
@@ -742,6 +967,15 @@ Used for per-claim mutations (faster than route handlers for form-driven actions
 10. **Subsidy-captured KPI** is the home-page wedge. No existing dashboard surfaces this.
 11. **Phase-3 recommender is gated.** Requires `DESIGN.md` + clawhub research before /execute.
 12. **Phase-5 artifact pipeline is gated.** Requires `DESIGN.md` before /execute.
+
+**2026-05-13 (iteration #2 — post Phase 2 ship, post 5-subagent research synthesis):**
+
+13. **Phase reorder.** New Phase 4 = Artifact Studio + Polish Pass (was Phase 5). New Phase 5 = Multi-agent + Langfuse (was Phase 4). Rationale: user wants the HTML/studio surface ASAP — markdown is fine for agent ↔ agent context but HTML earns its rendering cost the moment a human has to steer (per [the_unreasonable_effectiveness_of_html](../the_unreasonable_effectiveness_of_html.md)). Multi-agent + Langfuse can wait until canon multi-user demand actually arrives.
+14. **Studio shape: gallery + provenance + handoff, NOT IDE.** No file tree (faro's user has Claude Code one keystroke away — the cockpit primitive is grouped-by-run reverse-chronological list, per Manus / Replit Agent 4). No in-browser Monaco read-write editor (would make faro a second writer to artifacts that Claude Code owns on disk; creates sync conflicts). The only two-way primitive in v1 is **highlight-to-comment-back-into-prompt** (OpenAI Canvas pattern). Matches Anthropic's [Claude Design handoff-bundle loop](https://www.anthropic.com/news/claude-design-anthropic-labs) (Apr 17 2026). Locked after a 5-subagent research synthesis on 2026-05-13: in-browser editing recommendation reversed in favor of the gallery+handoff shape; user approved the pushback.
+15. **Nav: vertical sidebar (shadcn `sidebar-07`) + 48px top bar with locator pill + ⌘K + Bell + ThemeToggle.** Replaces v0.1 horizontal `TopBar.tsx`. Top-bar locator helper-text dot-separated (`· local Claude daemon` vs `· pei (Tailscale Serve)`). Source of truth for the agent dropdown is `team-switcher.tsx` (shared between sidebar header and locator pill click). References: [Vercel dashboard redesign](https://vercel.com/changelog/dashboard-navigation-redesign-rollout), [Linear UI redesign](https://linear.app/now/how-we-redesigned-the-linear-ui), [Notion sidebar breakdown](https://medium.com/@quickmasum/ui-breakdown-of-notions-sidebar-2121364ec78d).
+16. **Provider chip system via `color-mix(in oklab, var(--brand) 12%, transparent)`.** 9 brands locked with `oklch` CSS vars in `globals.css` `@theme`: anthropic (`#D97757`), gemini (`#078EFA` + `#AD89EB`), supabase (`#3ECF8E`), openai (`#10A37F`), openrouter (`#6E40C9` — unverified, fallback documented), linear (`#5E6AD2`), slack (`#4A154B`), github (`#24292F`), vercel (`oklch(0.20 0 0)`). Linear-style 12% tint with 25% ring; never paint chips in pure brand color.
+17. **One mesh-gradient hero card only.** Subsidy KPI card gets a pure-CSS radial-gradient stack as `::before`, `mix-blend-mode: plus-lighter`, `opacity: 0.55`, no animation. Reject Three.js / OGL aurora (50–100kB JS, RSC-hostile). Scarcity = premium — apply this effect to one card, not everywhere.
+18. **Embla dreams carousel hot-fix shipped out-of-phase 2026-05-13.** `min-h-[360px]` (which Embla's Y-axis cannot use as a snap stride) → `h-[360px] shrink-0`; button disabled state rewired from local `index` to Embla's `canScrollPrev`/`canScrollNext` API + `reInit` listener. Not bundled into Phase 4 because user was actively testing dreams when the bug surfaced.
 
 ---
 
@@ -797,6 +1031,45 @@ Used for per-claim mutations (faster than route handlers for form-driven actions
 - [Tailscale Serve](https://tailscale.com/kb/1242/tailscale-serve) — Tailnet ingress.
 - [Ionos DNS](https://www.ionos.com) — for v0.2+ public domain.
 
+**Phase 4 (Artifact Studio) — added 2026-05-13:**
+
+*Anthropic artifact surfaces (May 2026):*
+
+- [Introducing Claude Design — Anthropic](https://www.anthropic.com/news/claude-design-anthropic-labs) — Apr 17 2026 launch announcement. The "handoff bundle → Claude Code" loop is faro's model.
+- [TechCrunch — Anthropic launches Claude Design](https://techcrunch.com/2026/04/17/anthropic-launches-claude-design-a-new-product-for-creating-quick-visuals/) — secondary source.
+- [Claude Help Center — Artifacts](https://support.claude.com/en/articles/9487310-what-are-artifacts-and-how-do-i-use-them) — Preview/Code toggle, version selector, copy/download in lower-right corner.
+- [`web-artifacts-builder` skill](https://github.com/anthropics/skills/tree/main/skills/web-artifacts-builder) — canonical `bundle.html` contract (React 18 + Vite + Parcel + `html-inline`).
+- [`frontend-design` skill](https://github.com/anthropics/skills/tree/main/skills/frontend-design) — aesthetic guardrails (avoid generic-AI-slop fonts and gradients).
+
+*Competitor artifact studios (informed the studio-shape decision):*
+
+- [OpenAI Canvas announcement](https://openai.com/index/introducing-canvas/) — highlight-to-edit, Suggest edits, version back-button. faro adopts highlight-to-comment as the only two-way primitive.
+- [Vercel v0.app docs](https://v0.app/docs/faqs) — file tree + preview, visual-edit mode. **Rejected the file tree** for faro.
+- [Bolt.new repo](https://github.com/stackblitz/bolt.new) + [WebContainers](https://webcontainers.io/) — port-forwarded preview tabs. Out of scope for single-user cockpit.
+- [Cursor 2.0 / Composer](https://www.codecademy.com/article/cursor-2-0-new-ai-model-explained) — per-file accept/reject; partner-mode primitive faro reuses for `[Promote to wiki]`.
+- [Replit Agent 4](https://replit.com/agent4) — phase-aware UI; gallery groups artifacts by phase badge.
+- [Manus AI analysis (arxiv 2505.02024)](https://arxiv.org/html/2505.02024v1) — atomic-evidence panel; faro's provenance pane mirrors this.
+- [Roo Code v2.1 update notes](https://docs.roocode.com/update-notes/v2.1) — defensive auto-reject on truncated writes.
+
+*HTML-for-agents practitioners:*
+
+- [Geoffrey Litt — Enough AI Copilots! We need AI HUDs](https://www.geoffreylitt.com/2025/07/27/enough-ai-copilots-we-need-ai-huds) — ambient awareness UIs over chat.
+- [Maggie Appleton — One Developer, Two Dozen Agents, Zero Alignment (ACE)](https://maggieappleton.com/zero-alignment) — always-on summary block, Team Pulse, knobs/sliders.
+- [Simon Willison on HTML effectiveness](https://simonwillison.net/2026/May/8/unreasonable-effectiveness-of-html/) — endorsement of Thariq's thesis with concrete demos.
+- [Thariq's playgrounds post](https://x.com/trq212/status/2017024445244924382) — sliders + copy-to-prompt buttons as the two-way loop.
+- Shann Holmberg ([@shannholmberg](https://x.com/shannholmberg)) tri-pane framework (review dashboard / system overview / performance dashboard) — referenced by user; specific posts not independently verified, taken as guidance not citation.
+
+*Phase 4 UI references:*
+
+- [shadcn sidebar blocks](https://ui.shadcn.com/blocks/sidebar) — `sidebar-07` is the base for the nav rebuild; ships `team-switcher.tsx`.
+- [Vercel dashboard redesign 2026](https://vercel.com/changelog/dashboard-navigation-redesign-rollout) — workspace switcher at top of sidebar.
+- [Linear UI redesign](https://linear.app/now/how-we-redesigned-the-linear-ui) — reduced visual noise in top bar.
+- [Notion sidebar UI breakdown](https://medium.com/@quickmasum/ui-breakdown-of-notions-sidebar-2121364ec78d) — sidebar info density patterns.
+- Brand palettes: [Anthropic (mobbin)](https://mobbin.com/colors/brand/claude), [Gemini (brandarchive)](https://brandarchive.xyz/identity/gemini-google-2025), [Supabase](https://supabase.com/brand-assets), [OpenAI](https://openai.com/brand/), [Linear (mobbin)](https://mobbin.com/colors/brand/linear), [Slack PDF](https://a.slack-edge.com/0f43e/marketing/img/media-kit/Slack-Brand-Guidelines.pdf), [GitHub](https://colorcode.tools/brands/github).
+- Aurora / mesh: [Aceternity Aurora Background](https://ui.aceternity.com/components/aurora-background) (reference; rejected the JS-required version), [mesh gradient CSS guide](https://better-gradient.com/blog/mesh-gradient-css-guide).
+- Full-card charts: [Tremor SparkChart docs](https://www.tremor.so/docs/visualizations/spark-chart), [shadcn stats-sparkline block](https://www.shadcn.io/blocks/stats-sparkline), [Recharts gradient + overlay tips](https://leanylabs.com/blog/awesome-react-charts-tips/), [Stripe dashboard home charts pattern](https://support.stripe.com/questions/dashboard-home-charts-overview).
+- [`embla-carousel-react` API](https://www.embla-carousel.com/api/) — `canScrollPrev`/`canScrollNext` + `reInit` event used in the dreams-carousel fix.
+
 ### 15.3 Open questions for next iteration
 
 - **GitHub repo visibility** — `github.com/lucaramirezo/faro` public vs private at creation time. Public showcases the work; private gates portfolio. Defer to repo-creation moment.
@@ -804,3 +1077,13 @@ Used for per-claim mutations (faster than route handlers for form-driven actions
 - **Where Phase 0 DESIGN.md draft lands** — root of `faro/.claude/skills/faro-design-guidelines/` vs `faro/DESIGN.md`. Tracks the KULT pattern (which uses `/kult/DESIGN.md`).
 - **`bun next build` outputs to git or not** — committing `.next/standalone/` simplifies pei deploy but bloats the GitHub mirror. Recommendation: build in GitLab CI, deploy artifact to pei via rsync, don't commit `.next/`. Confirm at Phase 0 execute.
 - **Caddy install on pei** — Docker Compose vs system package. Recommendation: system package (Debian repo); systemd manages it.
+
+**Phase 4 (Artifact Studio) — added 2026-05-13:**
+
+- **Prune policy for `drafts/artifacts/`** — no auto-prune in Phase 4; need a rule (age-based? size-cap-based? "after promoted_at + N days drop"?) and the `/artifact-gc` skill design before the table grows past ~10K rows.
+- **Artifact-id stability** — `sha256(profile_id + relative_path + content_hash)[:16]` *vs* `sha256(content_hash + run_id)[:16]`. Path-keyed survives renames poorly; content-keyed duplicates when the same bundle is re-emitted. Phase 4 DESIGN.md must lock this before the migration runs.
+- **Per-profile artifact namespacing** — does each profile's `drafts/artifacts/` live under its `agent_root` (current assumption) or in a shared `faro/data/artifacts/<profile>/` so studio can index all profiles in one walk? Trade: locality vs single-scan ergonomics.
+- **`wiki/artifacts/` and GitHub mirror** — `wiki/` is *not* mirrored to GitHub today (privacy boundary). Should `wiki/artifacts/<slug>/bundle.html` files be mirrored *if* they're explicitly marked public (frontmatter `visibility: public`)? Or stay private like the rest of `wiki/`? Affects whether faro can ship "share-this-artifact" external links.
+- **VS Code deep-link UX on pei** — laptop has VS Code via `vscode://`; pei doesn't. The `[Open in Claude Code]` toolbar action currently copies a `claude --resume` invocation to clipboard on pei. Is that enough, or do we need a server-side "spawn claude session" endpoint? Defer unless it bites.
+- **`heartbeat/morning_brief.py` existence** — Phase 4 Track A assumes this file exists; audit at execute time. If not, the brief emitter ships as a new file co-located with `heartbeat/`.
+- **Bell notification scope** — pull-only popover vs SSE push? Pull is simpler; SSE earns its keep only if pending-items volume gets high. Start with pull; revisit in Phase 5.

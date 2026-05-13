@@ -5,10 +5,12 @@ import {
   Comet01Icon,
   GithubIcon,
 } from "@hugeicons/core-free-icons";
+import { AccountCard } from "@/components/cost/AccountCard";
 import { AuthModePill } from "@/components/cost/AuthModePill";
 import { PlanLimits } from "@/components/cost/PlanLimits";
 import { SubscriptionCard } from "@/components/cost/SubscriptionCard";
-import { getActiveBlock, getDaily, getWeeklyActiveHours } from "@/lib/ccusage";
+import { getAuthStatusFromCli, getOAuthProfile, getSubscriptionUsage } from "@/lib/anthropic-usage";
+import { getActiveBlock, getDaily } from "@/lib/ccusage";
 import { requireOpenRouterKey } from "@/lib/env";
 import { FALLBACK_PRICING, getPricing } from "@/lib/pricing";
 
@@ -65,13 +67,16 @@ async function fetchOpenRouterCredits(): Promise<
 }
 
 export default async function CostPage() {
-  const [daily, activeBlock, weeklyHours, pricing, orCredits] = await Promise.all([
-    getDaily(),
-    getActiveBlock(),
-    getWeeklyActiveHours(),
-    getPricing(),
-    fetchOpenRouterCredits(),
-  ]);
+  const [daily, activeBlock, pricing, orCredits, usageResult, profileResult, cliAuth] =
+    await Promise.all([
+      getDaily(),
+      getActiveBlock(),
+      getPricing(),
+      fetchOpenRouterCredits(),
+      getSubscriptionUsage(),
+      getOAuthProfile(),
+      getAuthStatusFromCli(),
+    ]);
 
   const month = currentMonthIso();
   const monthEntries = daily.filter((d) => d.date.startsWith(month));
@@ -81,7 +86,6 @@ export default async function CostPage() {
   const monthCacheRead = monthEntries.reduce((s, d) => s + d.cacheReadTokens, 0);
   const monthCacheCreate = monthEntries.reduce((s, d) => s + d.cacheCreationTokens, 0);
 
-  // Equivalent API cost for the same tokens
   const pricingTable = pricing ?? FALLBACK_PRICING;
   let apiEquivalent = 0;
   for (const d of monthEntries) {
@@ -100,17 +104,46 @@ export default async function CostPage() {
     }
   }
 
+  // Stitch account info: prefer the OAuth profile (richer), fall back to the
+  // CLI status command if the API is unreachable.
+  const account = profileResult.profile ?? null;
+  const fallbackEmail = cliAuth?.email ?? null;
+  const fallbackSub = cliAuth?.subscriptionType ?? null;
+  const fallbackOrg = cliAuth?.orgName ?? null;
+
   return (
     <div className="space-y-6">
       <header className="flex items-baseline justify-between gap-3">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">Cost</h1>
           <p className="text-sm text-muted-foreground">
-            Subscriptions, plan headroom, and API-equivalent spend.
+            Subscription limits, account identity, and API-equivalent spend.
           </p>
         </div>
         <AuthModePill />
       </header>
+
+      <section className="grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-[2fr_1fr]">
+        <PlanLimits
+          fiveHour={usageResult.usage?.fiveHour ?? null}
+          sevenDay={usageResult.usage?.sevenDay ?? null}
+          sevenDaySonnet={usageResult.usage?.sevenDaySonnet ?? null}
+          fetchStatus={usageResult.status}
+          errorDetail={usageResult.error}
+        />
+        <AccountCard
+          email={account?.email ?? fallbackEmail}
+          displayName={account?.displayName ?? null}
+          orgName={account?.orgName ?? fallbackOrg}
+          rateLimitTier={account?.rateLimitTier ?? null}
+          subscriptionStatus={
+            account?.subscriptionStatus ?? (fallbackSub ? `${fallbackSub} (cli)` : null)
+          }
+          hasClaudeMax={account?.hasClaudeMax ?? fallbackSub === "max"}
+          hasClaudePro={account?.hasClaudePro ?? fallbackSub === "pro"}
+        />
+      </section>
+
       <section className="grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
         <SubscriptionCard
           name="Claude Max"
@@ -118,9 +151,13 @@ export default async function CostPage() {
           monthlyUsd={CLAUDE_MAX_MONTHLY_USD}
           badge="OAuth · Max"
           status="live"
-          primaryStat={{ label: "MTD spend", value: fmtUsd(monthUsd) }}
+          primaryStat={{ label: "MTD API-equivalent", value: fmtUsd(apiEquivalent) }}
           secondary={[
-            { label: "API-equivalent", value: fmtUsd(apiEquivalent) },
+            { label: "MTD ccusage cost", value: fmtUsd(monthUsd) },
+            {
+              label: "5h block (tokens)",
+              value: activeBlock?.totalTokens ? activeBlock.totalTokens.toLocaleString() : "—",
+            },
             { label: "Input tokens", value: monthInput.toLocaleString() },
             { label: "Output tokens", value: monthOutput.toLocaleString() },
             {
@@ -128,7 +165,7 @@ export default async function CostPage() {
               value: `${monthCacheRead.toLocaleString()} / ${monthCacheCreate.toLocaleString()}`,
             },
           ]}
-          hint="Subsidy = API-equivalent − monthly fee."
+          hint={`Subsidy = API-equivalent − ${fmtUsd(CLAUDE_MAX_MONTHLY_USD)} / mo.`}
         />
         <SubscriptionCard
           name="OpenRouter"
@@ -189,14 +226,6 @@ export default async function CostPage() {
           badge="manual"
           status="manual"
           hint="Seat-based, no per-token API."
-        />
-      </section>
-      <section>
-        <PlanLimits
-          fiveHourBlockTokens={activeBlock?.totalTokens}
-          fiveHourBlockProjectedTokens={activeBlock?.projection?.totalTokens}
-          fiveHourBlockRemainingMinutes={activeBlock?.projection?.remainingMinutes}
-          weeklyHoursUsed={weeklyHours ?? undefined}
         />
       </section>
     </div>

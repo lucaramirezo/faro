@@ -13,14 +13,22 @@ export interface EmblaCarouselProps {
 export function EmblaCarousel({ children }: EmblaCarouselProps) {
   const [ref, api] = useEmblaCarousel({ loop: false, axis: "y" });
   const [index, setIndex] = useState(0);
+  const [canPrev, setCanPrev] = useState(false);
+  const [canNext, setCanNext] = useState(false);
 
   useEffect(() => {
     if (!api) return;
-    const onSelect = () => setIndex(api.selectedScrollSnap());
-    onSelect();
-    api.on("select", onSelect);
+    const sync = () => {
+      setIndex(api.selectedScrollSnap());
+      setCanPrev(api.canScrollPrev());
+      setCanNext(api.canScrollNext());
+    };
+    sync();
+    api.on("select", sync);
+    api.on("reInit", sync);
     return () => {
-      api.off("select", onSelect);
+      api.off("select", sync);
+      api.off("reInit", sync);
     };
   }, [api]);
 
@@ -34,11 +42,11 @@ export function EmblaCarousel({ children }: EmblaCarouselProps) {
   return (
     <div className="space-y-2">
       <div className="overflow-hidden h-[360px]" ref={ref}>
-        <div className="flex flex-col">
+        <div className="flex flex-col h-full">
           {children.map((child, i) => (
             <div
               key={child.key ?? `slide-${i}`}
-              className="min-h-[360px] flex items-stretch [&>*]:flex-1"
+              className="h-[360px] shrink-0 flex items-stretch [&>*]:flex-1"
             >
               {child}
             </div>
@@ -46,14 +54,14 @@ export function EmblaCarousel({ children }: EmblaCarouselProps) {
         </div>
       </div>
       <div className="flex items-center justify-between gap-2">
-        <Button size="sm" variant="ghost" onClick={prev} disabled={index === 0}>
+        <Button size="sm" variant="ghost" onClick={prev} disabled={!canPrev}>
           <HugeiconsIcon icon={ArrowUp01Icon} size={14} strokeWidth={2} />
           Prev
         </Button>
         <span className="text-xs text-muted-foreground tabular-nums">
           {index + 1} / {children.length}
         </span>
-        <Button size="sm" variant="ghost" onClick={next} disabled={index >= children.length - 1}>
+        <Button size="sm" variant="ghost" onClick={next} disabled={!canNext}>
           Next
           <HugeiconsIcon icon={ArrowDown01Icon} size={14} strokeWidth={2} />
         </Button>

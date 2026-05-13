@@ -501,7 +501,7 @@ The studio is **gallery + provenance + handoff toolbar**, NOT a mini-IDE. Faro's
 
 - **Left pane (240px) — gallery.** Reverse-chronological list of artifacts, grouped by `run_id`. Each group shows the emitter name (dreams / brief / plan-feature / wiki-lint / ingest) and a phase badge (Replit Agent 4 pattern). Standalone wiki artifacts grouped under `wiki/<slug>`. Filter by profile (active profile only by default). No file tree — flat list is the cockpit primitive.
 - **Center pane (flex) — mime-typed renderer.** Picked by `mime` column:
-  - `text/html` → `<iframe sandbox="allow-scripts allow-same-origin" src="/studio/raw/<artifact_id>">`. The raw endpoint streams the file with a Content-Security-Policy header restricting external network access.
+  - `text/html` → `<iframe sandbox="allow-scripts" src="/studio/raw/<artifact_id>">`. The raw endpoint streams the file with a Content-Security-Policy header restricting external network access.
   - `text/markdown` → `react-markdown` + `rehype-highlight`; existing `lib/shiki-diff.ts` reused for diff regions.
   - `image/svg+xml` → inline (sanitized via `DOMPurify`).
   - `application/json` → `react-json-tree` (lighter weight than `react-json-view`).
@@ -535,7 +535,7 @@ The ingest review is the highest-leverage NEW use case: it's the single most-rep
 
 **6.6.4 Security**
 
-- Bundle.html iframes use `sandbox="allow-scripts allow-same-origin"` — no top-navigation, no forms-to-origin, no popups.
+- Bundle.html iframes use `sandbox="allow-scripts"` (NOT `allow-scripts allow-same-origin` — combining the two flags lets the child remove its own sandbox per [MDN iframe sandbox](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#sandbox)) — no top-navigation, no forms-to-origin, no popups.
 - `/studio/raw/<artifact_id>` route enforces `path` is under the active profile's `agent_root` via the existing `_assert_under` TS port (see §8.2). 403 on traversal.
 - Content-Security-Policy header on raw responses: `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'` — bundle.html is fully self-contained per the `web-artifacts-builder` contract, so external connectivity is denied.
 - `postMessage` handler validates `origin === window.location.origin` and `event.data.type === 'faro:highlight'`; drops everything else.
@@ -583,13 +583,13 @@ The ingest review is the highest-leverage NEW use case: it's the single most-rep
 |---|---|---|---|
 | Sidebar block | **shadcn `sidebar-07`** | latest | Ships `team-switcher.tsx` for the agent dropdown; collapsible-to-icons. [Block ref](https://ui.shadcn.com/blocks/sidebar). |
 | Theme | **`next-themes`** | latest | Standard shadcn pattern; cookie-persisted. |
-| HTML iframe sandbox | native `<iframe sandbox>` + `postMessage` | — | No new lib; CSP already in place. Sandbox flags: `allow-scripts allow-same-origin` only. |
+| HTML iframe sandbox | native `<iframe sandbox>` + `postMessage` | — | No new lib; CSP already in place. Sandbox flags: `allow-scripts` only. |
 | Markdown renderer | **`react-markdown`** + `rehype-highlight` | latest | Existing Shiki via `lib/shiki-diff.ts` reused for diff regions. |
 | JSON viewer | **`react-json-tree`** | latest | Lighter than `react-json-view`; RSC-safe. |
 | Code viewer (read-only) | **`@monaco-editor/react`** | latest | Lazy-loaded; better than Shiki for long files; read-only mode prevents second-writer race with Claude Code. |
 | SVG sanitizer | **`DOMPurify`** | latest | Required before inline SVG render. |
 | Mesh gradient | CSS-only radial-gradient stack | — | No Three.js, no canvas; RSC-safe; static (no animation). |
-| Charts (full-bleed) | Existing Recharts via shadcn `Chart` block | — | `<Area>` filling card + left-to-right scrim trick. Shipped pattern in shadcn `stats-sparkline`. |
+| Charts (full-bleed) | Existing **Tremor 3.18.7** via `<SparkAreaChart>` | — | Tremor chart absolutely positioned filling card + left-to-right scrim (`bg-gradient-to-r from-card via-card/70 to-transparent`) + relative KPI overlay. Shipped pattern in shadcn `stats-sparkline`. (Recharts was incorrectly listed in PRD v0.1; corrected 2026-05-13.) |
 | Provider icons | hugeicons (already loaded) + per-brand SVG registry under `components/ui/provider-icons/` | — | Avoid CDN; brand assets committed locally. |
 | Artifact bundler skill | Anthropic [`web-artifacts-builder`](https://github.com/anthropics/skills/tree/main/skills/web-artifacts-builder) | latest | Installed at project scope in Phase 4. React 18 + Vite + Parcel + `html-inline` → single `bundle.html`. |
 
@@ -883,7 +883,7 @@ Bundled with Track A; ships as one "faro feels finished" release.
   - [ ] `components/ui/provider-chip.tsx` — `<ProviderChip provider="anthropic" />`; tint pattern `bg-[color-mix(in_oklab,var(--brand-anthropic)_12%,transparent)] text-[var(--brand-anthropic)] ring-[color-mix(in_oklab,var(--brand-anthropic)_25%,transparent)]`. Auto-resolves icon from `components/ui/provider-icons/<slug>.svg` registry.
   - [ ] Wire into auth-mode pill (cost page), KPI cards (when a provider is the source), studio gallery (artifact emitter chip).
 - [ ] **B3. Home KPI full-bleed chart cards.**
-  - [ ] Refactor `components/home/KpiCard.tsx`: drop `w-24 h-12` sparkline → `<Card className="relative overflow-hidden h-32">` with full-bleed Recharts `<Area>` + left-to-right scrim `bg-gradient-to-r from-card via-card/70 to-transparent` + `tabular-nums` KPI overlay.
+  - [ ] Refactor `components/home/KpiCard.tsx`: drop `w-24 h-12` sparkline → `<Card className="relative overflow-hidden h-32">` with full-bleed **Tremor `<SparkAreaChart>`** + left-to-right scrim `bg-gradient-to-r from-card via-card/70 to-transparent` + `tabular-nums` KPI overlay.
   - [ ] Apply to all three home KPIs (today $, this week $, subsidy this week).
 - [ ] **B4. Mesh-gradient hero card** — apply ONLY to the subsidy KPI card (the §10 wedge). Pure CSS radial-gradient stack as `::before`, `mix-blend-mode: plus-lighter`, `opacity: 0.55`, no animation. Reject Three.js (see §7 non-choices).
 - [ ] **B5. Tabular-nums sweep** — `font-variant-numeric: tabular-nums` on every numeric span across home, cost, dreams pages.
@@ -939,7 +939,7 @@ Bundled with Track A; ships as one "faro feels finished" release.
 | GitHub mirror leaks private memory accidentally | Med | High | Subtree push only `faro/` — `memory/`, `raw/`, `wiki/` NEVER cross the boundary. Verify with first manual push. CI job has explicit `--prefix=faro/` flag; no `--all`. |
 | Caddy + Tailscale-User-Login header forwarding subtle | Low | Med | Explicit `header_up` directive; integration test in Phase 0 hits faro through Tailscale + Caddy chain. |
 | Token cost explosion on bundled HTML artifacts | Low | Low | 2–4× MD cost per Thariq; only for high-value artifacts; hard-cap via SDK `max_tokens`. |
-| **Iframe sandbox + `postMessage` XSS surface** *(Phase 4)* | Low | High | Sandbox flags `allow-scripts allow-same-origin` only — no `allow-top-navigation`, no `allow-forms`, no `allow-popups`. CSP on `/studio/raw` denies `connect-src`. `postMessage` handler validates `origin` + message `type` strictly. E2E test in Phase 4 hits a hostile bundle.html to verify isolation. |
+| **Iframe sandbox + `postMessage` XSS surface** *(Phase 4)* | Low | High | Sandbox flags `allow-scripts` only — no `allow-top-navigation`, no `allow-forms`, no `allow-popups`. CSP on `/studio/raw` denies `connect-src`. `postMessage` handler validates `origin` + message `type` strictly. E2E test in Phase 4 hits a hostile bundle.html to verify isolation. |
 | **`artifacts` table growth** *(Phase 4)* | High | Low | No auto-prune in Phase 4; manual quarterly sweep. Index on `(emitter, profile_id, created_at DESC)` keeps gallery queries fast at 10K+ rows. §15.3 open question tracks prune policy. |
 | **bundle.html size on the wire** *(Phase 4)* | Med | Low | `web-artifacts-builder` inlines data URIs which can balloon files. Cap at 5MB per bundle in the emitter wrapper; surface a "this artifact is large" warning in the gallery if `bytes > 1MB`. |
 | **Provider-chip palette drift** *(Phase 4)* | Low | Low | Brand hexes are committed as `oklch` CSS vars in one place (`globals.css` `@theme`); never inlined per-component. Annual brand audit OR on user request. OpenRouter hex is unverified — fallback documented in source comment. |
@@ -1081,7 +1081,9 @@ Bundled with Track A; ships as one "faro feels finished" release.
 **Phase 4 (Artifact Studio) — added 2026-05-13:**
 
 - **Prune policy for `drafts/artifacts/`** — no auto-prune in Phase 4; need a rule (age-based? size-cap-based? "after promoted_at + N days drop"?) and the `/artifact-gc` skill design before the table grows past ~10K rows.
+  - **Closed (2026-05-13):** Deferred to `/artifact-gc` skill (Phase 5+); manual quarterly sweep in v1. See [`faro/.claude/skills/artifacts/DESIGN.md`](.claude/skills/artifacts/DESIGN.md) §5.
 - **Artifact-id stability** — `sha256(profile_id + relative_path + content_hash)[:16]` *vs* `sha256(content_hash + run_id)[:16]`. Path-keyed survives renames poorly; content-keyed duplicates when the same bundle is re-emitted. Phase 4 DESIGN.md must lock this before the migration runs.
+  - **Closed (2026-05-13):** Locked in [`faro/.claude/skills/artifacts/DESIGN.md`](.claude/skills/artifacts/DESIGN.md) §4: `sha256(content_hash + run_id)[:16]`, content-addressed.
 - **Per-profile artifact namespacing** — does each profile's `drafts/artifacts/` live under its `agent_root` (current assumption) or in a shared `faro/data/artifacts/<profile>/` so studio can index all profiles in one walk? Trade: locality vs single-scan ergonomics.
 - **`wiki/artifacts/` and GitHub mirror** — `wiki/` is *not* mirrored to GitHub today (privacy boundary). Should `wiki/artifacts/<slug>/bundle.html` files be mirrored *if* they're explicitly marked public (frontmatter `visibility: public`)? Or stay private like the rest of `wiki/`? Affects whether faro can ship "share-this-artifact" external links.
 - **VS Code deep-link UX on pei** — laptop has VS Code via `vscode://`; pei doesn't. The `[Open in Claude Code]` toolbar action currently copies a `claude --resume` invocation to clipboard on pei. Is that enough, or do we need a server-side "spawn claude session" endpoint? Defer unless it bites.

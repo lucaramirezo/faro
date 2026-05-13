@@ -1,22 +1,22 @@
-"use client";
-
 import {
-  AudioWave01Icon,
-  BookOpen02Icon,
-  CommandIcon,
-  ComputerTerminalIcon,
-  CropIcon,
+  Activity01Icon,
+  Brain02Icon,
+  BulbIcon,
+  Calendar01Icon,
+  CoinsDollarIcon,
+  ConnectIcon,
+  Database01Icon,
+  Home01Icon,
   LayoutBottomIcon,
-  MapsIcon,
-  PieChartIcon,
-  RoboticIcon,
-  Settings05Icon,
+  LighthouseIcon,
+  PlugSocketIcon,
+  SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type * as React from "react";
-import { NavMain } from "@/components/nav/nav-main";
-import { NavProjects } from "@/components/nav/nav-projects";
+import { NavGroups } from "@/components/nav/NavGroups";
 import { NavUser } from "@/components/nav/nav-user";
+import { SidebarRouteAwareCollapse } from "@/components/nav/SidebarRouteAwareCollapse";
 import { TeamSwitcher } from "@/components/nav/team-switcher";
 import {
   Sidebar,
@@ -25,149 +25,71 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import { getProfile } from "@/lib/profiles";
 
-// This is sample data.
-const data = {
-  user: {
-    name: "shadcn",
-    email: "m@example.com",
-    avatar: "/avatars/shadcn.jpg",
-  },
-  teams: [
-    {
-      name: "Acme Inc",
-      logo: <HugeiconsIcon icon={LayoutBottomIcon} strokeWidth={2} />,
-      plan: "Enterprise",
-    },
-    {
-      name: "Acme Corp.",
-      logo: <HugeiconsIcon icon={AudioWave01Icon} strokeWidth={2} />,
-      plan: "Startup",
-    },
-    {
-      name: "Evil Corp.",
-      logo: <HugeiconsIcon icon={CommandIcon} strokeWidth={2} />,
-      plan: "Free",
-    },
-  ],
-  navMain: [
-    {
-      title: "Playground",
-      url: "#",
-      icon: <HugeiconsIcon icon={ComputerTerminalIcon} strokeWidth={2} />,
-      isActive: true,
-      items: [
-        {
-          title: "History",
-          url: "#",
-        },
-        {
-          title: "Starred",
-          url: "#",
-        },
-        {
-          title: "Settings",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Models",
-      url: "#",
-      icon: <HugeiconsIcon icon={RoboticIcon} strokeWidth={2} />,
-      items: [
-        {
-          title: "Genesis",
-          url: "#",
-        },
-        {
-          title: "Explorer",
-          url: "#",
-        },
-        {
-          title: "Quantum",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Documentation",
-      url: "#",
-      icon: <HugeiconsIcon icon={BookOpen02Icon} strokeWidth={2} />,
-      items: [
-        {
-          title: "Introduction",
-          url: "#",
-        },
-        {
-          title: "Get Started",
-          url: "#",
-        },
-        {
-          title: "Tutorials",
-          url: "#",
-        },
-        {
-          title: "Changelog",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Settings",
-      url: "#",
-      icon: <HugeiconsIcon icon={Settings05Icon} strokeWidth={2} />,
-      items: [
-        {
-          title: "General",
-          url: "#",
-        },
-        {
-          title: "Team",
-          url: "#",
-        },
-        {
-          title: "Billing",
-          url: "#",
-        },
-        {
-          title: "Limits",
-          url: "#",
-        },
-      ],
-    },
-  ],
-  projects: [
-    {
-      name: "Design Engineering",
-      url: "#",
-      icon: <HugeiconsIcon icon={CropIcon} strokeWidth={2} />,
-    },
-    {
-      name: "Sales & Marketing",
-      url: "#",
-      icon: <HugeiconsIcon icon={PieChartIcon} strokeWidth={2} />,
-    },
-    {
-      name: "Travel",
-      url: "#",
-      icon: <HugeiconsIcon icon={MapsIcon} strokeWidth={2} />,
-    },
-  ],
-};
-
+/**
+ * AppSidebar is a server component: it reads the active faro profile via
+ * `getProfile()` (sync fs) and passes serializable data to client children.
+ * The shadcn Sidebar primitives below are themselves client components.
+ */
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const profile = getProfile();
+  const ownerLogin = profile.owner_logins[0] ?? "owner@example.com";
+
+  const teams = [
+    {
+      name: `faro/${profile.profile}`,
+      logo: <HugeiconsIcon icon={LighthouseIcon} strokeWidth={2} />,
+      plan: `v0.1 · ${profile.status}`,
+    },
+  ];
+
+  const groups = [
+    {
+      label: "Today",
+      items: [
+        { title: "Home", url: "/home", icon: Home01Icon },
+        { title: "Cost", url: "/cost", icon: CoinsDollarIcon },
+        { title: "Dreams", url: "/dreams", icon: Brain02Icon },
+      ],
+    },
+    {
+      label: "Build",
+      items: [
+        { title: "Studio", url: "/studio", icon: LayoutBottomIcon },
+        { title: "Recommender", url: "/recommender", icon: BulbIcon },
+        { title: "Skills", url: "/skills", icon: SparklesIcon },
+        { title: "Graph", url: "/graph", icon: ConnectIcon },
+      ],
+    },
+    {
+      label: "Ops",
+      items: [
+        { title: "Memory", url: "/memory", icon: Database01Icon },
+        { title: "Integrations", url: "/integrations", icon: PlugSocketIcon },
+        { title: "Scheduled", url: "/scheduled", icon: Calendar01Icon },
+        { title: "Activity", url: "/activity", icon: Activity01Icon },
+      ],
+    },
+  ];
+
+  const user = {
+    name: "Luca",
+    email: ownerLogin,
+    avatar: "/avatars/shadcn.jpg",
+  };
+
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
-        <TeamSwitcher teams={data.teams} />
+        <TeamSwitcher teams={teams} />
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={data.navMain} />
-        <NavProjects projects={data.projects} />
+        <NavGroups groups={groups} />
       </SidebarContent>
+      <SidebarRouteAwareCollapse />
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <NavUser user={user} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

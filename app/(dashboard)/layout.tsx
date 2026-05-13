@@ -1,13 +1,21 @@
+import { AppSidebar } from "@/components/nav/app-sidebar";
 import { CommandPalette } from "@/components/nav/CommandPalette";
-import { TopBar } from "@/components/nav/TopBar";
+import { LocatorPill } from "@/components/nav/LocatorPill";
+import { TopLocator } from "@/components/nav/TopLocator";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 export default function DashboardLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <TooltipProvider delayDuration={250}>
-      <TopBar />
-      <main className="mx-auto w-full max-w-6xl px-4 py-6 flex-1">{children}</main>
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <TopLocator pill={<LocatorPill />} />
+          <main className="flex-1 px-4 py-6">{children}</main>
+        </SidebarInset>
+      </SidebarProvider>
       <CommandPalette />
       <Toaster richColors closeButton position="bottom-right" />
     </TooltipProvider>

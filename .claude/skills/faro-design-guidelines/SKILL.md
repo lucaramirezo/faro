@@ -24,7 +24,6 @@ description: Use this skill whenever generating UI components, copy, or visual a
 ## Anti-patterns
 
 - Inter font (avoid — Geist is the chosen pairing).
-- Solid #FF1493 (KULT brand only).
 - Symmetric centered layouts (favor asymmetric, content-first).
 - Generic AI-slop purple gradients.
 

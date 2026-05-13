@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, JetBrains_Mono } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
 import { ThemeProvider } from "@/components/nav/ThemeProvider";
 import { cn } from "@/lib/utils";
@@ -21,7 +22,13 @@ export const metadata: Metadata = {
   description: "Agent OS control center",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // Read the per-request nonce that proxy.ts injects. We pass it to
+  // next-themes' ThemeProvider so its anti-flash inline script carries the
+  // nonce and survives `script-src 'self' 'nonce-X' 'strict-dynamic'`.
+  // The mere `headers()` read also opts the root layout into Next.js's
+  // automatic nonce stamping for the runtime + chunk loader scripts.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html
       lang="en"
@@ -36,7 +43,13 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       )}
     >
       <body className="min-h-full flex flex-col">
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem
+          disableTransitionOnChange
+          nonce={nonce}
+        >
           {children}
         </ThemeProvider>
       </body>

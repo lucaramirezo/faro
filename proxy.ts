@@ -17,7 +17,9 @@ function buildCspWithNonce(nonce: string): string {
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
     "connect-src 'self'",
-    "frame-ancestors 'none'",
+    // 'self' (not 'none') so the studio's HtmlRenderer iframe can frame
+    // /studio/raw/<id>. Both pages are served from the same origin.
+    "frame-ancestors 'self'",
     "base-uri 'self'",
     "form-action 'self'",
   ].join("; ");

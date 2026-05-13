@@ -76,7 +76,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const user = {
     name: "Luca",
     email: ownerLogin,
-    avatar: "/avatars/shadcn.jpg",
+    // No avatar wired yet — AvatarFallback renders initials. Drop the
+    // sample-data shadcn.jpg URL so we don't 404 on every render.
+    avatar: "",
   };
 
   return (

@@ -9,7 +9,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 }));
 
 // Import AFTER vi.mock so the SUT picks up the mocked query.
-import { rerunClaim } from "@/lib/agent-sdk";
+import { type ChatSSEEvent, rerunClaim, streamChat } from "@/lib/agent-sdk";
 
 function asAsync<T>(items: T[]): AsyncIterable<T> {
   return {
@@ -126,6 +126,115 @@ describe("rerunClaim — error paths", () => {
     process.env.ANTHROPIC_API_KEY = "sk-ant-leak";
     await expect(rerunClaim({ original: "x", instruction: "y" })).rejects.toThrow(
       /ANTHROPIC_API_KEY is set/,
+    );
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+});
+
+describe("streamChat", () => {
+  it("emits a token envelope for each assistant text block + a final done envelope", async () => {
+    mockQuery.mockReturnValue(
+      asAsync([
+        {
+          type: "assistant",
+          session_id: "sess-abc",
+          message: {
+            content: [
+              { type: "text", text: "Hello " },
+              { type: "text", text: "world." },
+            ],
+          },
+        },
+        {
+          type: "result",
+          subtype: "success",
+          total_cost_usd: 0,
+          duration_ms: 42,
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      ]),
+    );
+    const events: ChatSSEEvent[] = [];
+    for await (const ev of streamChat({
+      systemPrompt: "sys",
+      userMessage: "hi",
+    })) {
+      events.push(ev);
+    }
+    const tokens = events.filter(
+      (e): e is Extract<ChatSSEEvent, { type: "token" }> => e.type === "token",
+    );
+    expect(tokens.map((t) => t.text)).toEqual(["Hello ", "world."]);
+    const done = events.find(
+      (e): e is Extract<ChatSSEEvent, { type: "done" }> => e.type === "done",
+    );
+    expect(done?.sessionId).toBe("sess-abc");
+    expect(done?.durationMs).toBe(42);
+  });
+
+  it("emits a tool_use envelope when the assistant requests a tool", async () => {
+    mockQuery.mockReturnValue(
+      asAsync([
+        {
+          type: "assistant",
+          session_id: "sess-1",
+          message: {
+            content: [
+              {
+                type: "tool_use",
+                id: "tu-1",
+                name: "Read",
+                input: { path: "/wiki/index.md" },
+              },
+            ],
+          },
+        },
+        {
+          type: "result",
+          subtype: "success",
+          total_cost_usd: 0,
+          duration_ms: 1,
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      ]),
+    );
+    const events: ChatSSEEvent[] = [];
+    for await (const ev of streamChat({ systemPrompt: "s", userMessage: "u" })) {
+      events.push(ev);
+    }
+    const tu = events.find(
+      (e): e is Extract<ChatSSEEvent, { type: "tool_use" }> => e.type === "tool_use",
+    );
+    expect(tu?.tool).toBe("Read");
+    expect(tu?.toolUseId).toBe("tu-1");
+  });
+
+  it("emits an error envelope when the SDK returns a result error", async () => {
+    mockQuery.mockReturnValue(
+      asAsync([
+        {
+          type: "result",
+          subtype: "error_during_execution",
+        },
+      ]),
+    );
+    const events: ChatSSEEvent[] = [];
+    for await (const ev of streamChat({ systemPrompt: "s", userMessage: "u" })) {
+      events.push(ev);
+    }
+    expect(events.some((e) => e.type === "error")).toBe(true);
+  });
+
+  it("refuses to run when ANTHROPIC_API_KEY is set", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-leak";
+    const events: ChatSSEEvent[] = [];
+    for await (const ev of streamChat({ systemPrompt: "s", userMessage: "u" })) {
+      events.push(ev);
+    }
+    // The OAuth guard throws — caught by streamChat's try/catch and yielded
+    // as an error envelope; query() must not be called.
+    expect(events.some((e) => e.type === "error" && /ANTHROPIC_API_KEY/.test(e.message))).toBe(
+      true,
     );
     expect(mockQuery).not.toHaveBeenCalled();
   });

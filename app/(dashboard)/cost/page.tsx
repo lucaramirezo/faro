@@ -13,6 +13,7 @@ import { getAuthStatusFromCli, getOAuthProfile, getSubscriptionUsage } from "@/l
 import { getActiveBlock, getDaily } from "@/lib/ccusage";
 import { requireOpenRouterKey } from "@/lib/env";
 import { FALLBACK_PRICING, getPricing } from "@/lib/pricing";
+import { getCostsByProvider } from "@/lib/provider-calls";
 
 export const dynamic = "force-dynamic";
 
@@ -77,6 +78,21 @@ export default async function CostPage() {
       getOAuthProfile(),
       getAuthStatusFromCli(),
     ]);
+
+  // Phase 4.5 C5: per-provider rollup over the last 7 days from provider_calls.
+  // Wrapped in try/catch so a missing/old DB doesn't crash the whole page.
+  const sevenDaysAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  let tokenApiCostsByProvider: Record<string, number> = {};
+  let tokenApiOk = true;
+  try {
+    tokenApiCostsByProvider = getCostsByProvider({ sinceISO: sevenDaysAgoIso });
+  } catch (err) {
+    tokenApiOk = false;
+    console.warn(
+      `[faro] /cost: provider_calls read failed — ${err instanceof Error ? err.message : "unknown"}`,
+    );
+  }
+  const tokenApiTotal = Object.values(tokenApiCostsByProvider).reduce((s, n) => s + n, 0);
 
   const month = currentMonthIso();
   const monthEntries = daily.filter((d) => d.date.startsWith(month));
@@ -201,6 +217,29 @@ export default async function CostPage() {
             orCredits.ok
               ? undefined
               : "Set FARO_OPENROUTER_API_KEY (LoadCredential on pei) to enable live credits."
+          }
+        />
+        <SubscriptionCard
+          name="Token-API spend (7d)"
+          icon={CloudIcon}
+          monthlyUsd={null}
+          badge="provider_calls"
+          status={tokenApiOk ? "live" : "unset"}
+          primaryStat={
+            tokenApiOk ? { label: "Total (7d)", value: fmtUsd(tokenApiTotal) } : undefined
+          }
+          secondary={
+            tokenApiOk
+              ? (["anthropic", "google", "openai"] as const).map((p) => ({
+                  label: p,
+                  value: fmtUsd(tokenApiCostsByProvider[p] ?? 0),
+                }))
+              : []
+          }
+          hint={
+            tokenApiOk
+              ? "Sonnet rerun + Imagen/gpt-image-1. Chat through Max-sub is unrecorded."
+              : "Run `bun run migrate` to create the provider_calls table."
           }
         />
         <SubscriptionCard

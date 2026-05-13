@@ -161,3 +161,131 @@ function signalToController(signal: AbortSignal | undefined): AbortController | 
   else signal.addEventListener("abort", () => ctrl.abort(signal.reason), { once: true });
   return ctrl;
 }
+
+/**
+ * Streaming chat over the studio artifact (Phase 4.5 C1).
+ *
+ * Yields AG-UI-shaped envelopes so the route handler can pipe straight into
+ * an SSE Response and the Chat client can render uniformly:
+ *
+ *   - `token`        : an incremental text chunk (one per SDK assistant text
+ *                      block in v1; partial-message streaming is a Phase 5
+ *                      knob via `includePartialMessages`).
+ *   - `tool_use`     : Claude requested a tool. Phase 4.5 ships with
+ *                      `allowedTools: []`, so this never fires in v1 — the
+ *                      shape is defined for ToolCard.tsx to render when
+ *                      tools graduate.
+ *   - `tool_result`  : tool ran; result attached.
+ *   - `done`         : final cost + duration + session id.
+ *   - `error`        : SDK reported a result error.
+ *
+ * Auth, cost, and prompt rules are inherited from `rerunClaim`. Chat runs
+ * on Max-sub OAuth (recordCall does NOT log chat rows — the subscription
+ * absorbs cost, and inflating the ledger would distort /cost analytics).
+ */
+export type ChatSSEEvent =
+  | { type: "token"; text: string }
+  | { type: "tool_use"; tool: string; args: unknown; toolUseId: string }
+  | { type: "tool_result"; toolUseId: string; result: string; isError: boolean }
+  | { type: "done"; costUsd: number; durationMs: number; sessionId: string }
+  | { type: "error"; message: string };
+
+export interface StreamChatInput {
+  /** Full system prompt — the route handler injects artifact context here. */
+  systemPrompt: string;
+  /** The latest user message. v1 ships single-turn; multi-turn history can be
+   * threaded later via `resume` + `forkSession` from the Sessions guide. */
+  userMessage: string;
+  signal?: AbortSignal;
+}
+
+interface BetaContentBlock {
+  type: string;
+  text?: string;
+  id?: string;
+  name?: string;
+  input?: unknown;
+  tool_use_id?: string;
+  content?: unknown;
+  is_error?: boolean;
+}
+
+function* extractAssistantEvents(
+  message: { content: BetaContentBlock[] } | unknown,
+): Generator<Extract<ChatSSEEvent, { type: "token" | "tool_use" }>> {
+  const content = (message as { content?: BetaContentBlock[] } | undefined)?.content ?? [];
+  for (const block of content) {
+    if (block.type === "text" && typeof block.text === "string" && block.text.length > 0) {
+      yield { type: "token", text: block.text };
+    } else if (block.type === "tool_use" && block.id && block.name) {
+      yield {
+        type: "tool_use",
+        tool: block.name,
+        args: block.input,
+        toolUseId: block.id,
+      };
+    }
+  }
+}
+
+function* extractUserToolResults(
+  message: { content: BetaContentBlock[] } | unknown,
+): Generator<Extract<ChatSSEEvent, { type: "tool_result" }>> {
+  const content = (message as { content?: BetaContentBlock[] } | undefined)?.content ?? [];
+  for (const block of content) {
+    if (block.type === "tool_result" && block.tool_use_id) {
+      yield {
+        type: "tool_result",
+        toolUseId: block.tool_use_id,
+        result: typeof block.content === "string" ? block.content : JSON.stringify(block.content),
+        isError: block.is_error === true,
+      };
+    }
+  }
+}
+
+export async function* streamChat(input: StreamChatInput): AsyncGenerator<ChatSSEEvent> {
+  const started = Date.now();
+  let sessionId = "";
+  try {
+    ensureOAuthAuth();
+    const q = query({
+      prompt: input.userMessage,
+      options: {
+        model: SONNET_MODEL,
+        systemPrompt: input.systemPrompt,
+        maxTurns: 1,
+        allowedTools: [],
+        abortController: signalToController(input.signal),
+      },
+    });
+
+    for await (const m of q as AsyncIterable<SDKMessage>) {
+      if (m.type === "assistant") {
+        sessionId = m.session_id || sessionId;
+        for (const ev of extractAssistantEvents(m.message)) yield ev;
+      } else if (m.type === "user") {
+        for (const ev of extractUserToolResults((m as { message?: unknown }).message)) yield ev;
+      } else if (m.type === "result") {
+        if (m.subtype === "success") {
+          yield {
+            type: "done",
+            costUsd: m.total_cost_usd ?? 0,
+            durationMs: m.duration_ms ?? Date.now() - started,
+            sessionId,
+          };
+        } else {
+          yield {
+            type: "error",
+            message: `SDK error: ${(m as { subtype: string }).subtype}`,
+          };
+        }
+      }
+    }
+  } catch (err) {
+    yield {
+      type: "error",
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+}

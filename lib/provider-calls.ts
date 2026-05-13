@@ -37,6 +37,63 @@ export interface RecordCallInput {
   meta?: Record<string, unknown>;
 }
 
+export interface ProviderCallRow {
+  id: number;
+  ts: string;
+  profile: string;
+  feature: string;
+  provider: string;
+  model: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cached_input_tokens: number | null;
+  images: number | null;
+  cost_usd: number;
+  duration_ms: number | null;
+  run_id: string | null;
+  meta: string | null;
+}
+
+/**
+ * Sum cost_usd by provider for the active profile, restricted to rows newer
+ * than `sinceISO`. Used by the /cost page's "Token-API spend (Nd)" KPI.
+ */
+export function getCostsByProvider({ sinceISO }: { sinceISO: string }): Record<string, number> {
+  const profile = getProfile();
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT provider, SUM(cost_usd) AS total
+         FROM provider_calls
+        WHERE profile = ? AND ts >= ?
+        GROUP BY provider`,
+    )
+    .all(profile.profile, sinceISO) as Array<{ provider: string; total: number }>;
+  const out: Record<string, number> = {};
+  for (const r of rows) out[r.provider] = r.total ?? 0;
+  return out;
+}
+
+/**
+ * Most-recent N calls, newest first. Used for the /cost recent-activity view
+ * and ad-hoc debugging in dev.
+ */
+export function getRecentCalls({ limit = 50 }: { limit?: number } = {}): ProviderCallRow[] {
+  const profile = getProfile();
+  const db = getDb();
+  return db
+    .prepare(
+      `SELECT id, ts, profile, feature, provider, model,
+              input_tokens, output_tokens, cached_input_tokens, images,
+              cost_usd, duration_ms, run_id, meta
+         FROM provider_calls
+        WHERE profile = ?
+        ORDER BY id DESC
+        LIMIT ?`,
+    )
+    .all(profile.profile, limit) as ProviderCallRow[];
+}
+
 export function recordCall(input: RecordCallInput): void {
   const profile = getProfile();
   const db = getDb();

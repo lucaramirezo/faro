@@ -984,6 +984,21 @@ Bundled with Track A; ships as one "faro feels finished" release.
 21. **Code renderer: Shiki RSC.** Replaces Monaco entirely (not just read-only). Server-rendered `<pre>` via existing `lib/shiki-diff.ts`; no client bundle (~3MB saved vs Monaco); eliminates `worker-src` CSP carve-out documented in §3.2 of DESIGN.md. Trade-off: no in-place find-in-file or go-to-line — long files go through `[Open in Claude Code]` handoff per decision #14.
 22. **Recharts citation removed from §15.2.** PRD §7 already corrected Recharts → Tremor 3.18.7 in iteration #2; the lingering reference link was historical noise. Phase 4 full-bleed KPI charts use Tremor `<SparkAreaChart>` exclusively.
 
+**2026-05-14 (iteration #4 — Phase 4.5 "Feels Alive"):**
+
+23. **Phase 4.5 locked decisions** (shipped as commits `e249894` pre-flight → `127d70b` Workstream D, 7 commits over four workstreams A/B/C/D):
+    - **`@tailwindcss/typography` registered via CSS-side `@plugin`** (Tailwind v4 — no `tailwind.config.{js,ts}`). Fixes the most visible Phase 4 regression: `MarkdownRenderer`'s `prose prose-sm dark:prose-invert` actually styles now.
+    - **Chat provider: `@anthropic-ai/claude-agent-sdk`** ONLY. Never `@ai-sdk/anthropic`. Both `rerunClaim` (dreams tweak) and `streamChat` (studio chat) call `query()` against the Max-sub OAuth. The empty-string folklore `Environment=ANTHROPIC_API_KEY=` is documented as broken — `UnsetEnvironment=` + `CLAUDE_CODE_OAUTH_TOKEN` via systemd `LoadCredential` is the only correct pei pattern.
+    - **Image-gen: multi-provider day 1.** `lib/providers.ts` switches on `models.<feature>.provider` from the active profile YAML. Imagen 4 ships as the `wiki_image` default; gpt-image-1 is one YAML edit + `requireOpenAIKey()` away. Costs land in `provider_calls` via `recordCall`.
+    - **`TweakPatch` is a Zod discriminated union** with a `{schema_version: 1, patch}` envelope persisted on `claim_decisions.tweak_patch`. Four variants (`set-text`, `set-status`, `merge-with`, `set-rubric-score`); the rubric-score variant round-trips on `reviewer_note` as `[rubric:N/10]` until a dedicated column lands in Phase 5.
+    - **Studio chat tab in `/studio` only** (no persistent `/chat` route). Provenance + Chat wrap in shadcn `<Tabs>` via `ProvenanceTabs.tsx`. Chat messages persist to `localStorage` keyed by `artifact_id` and drop on artifact promote (decision #5). Tools off in v1; `ToolCard.tsx` registry primed for Read/Write/Bash when they graduate.
+    - **Studio "modes" + persistent `/chat`: DEFERRED to Phase 5** when the canon profile lands. Modes only earn their weight at ≥2 profiles.
+    - **Per-session cost cap $0.25** in `TweakEditor` (UI hard-cap; backend logs only). `provider_calls.meta` is open-ended JSON in v1 (decision #4) — Zod-tighten in Phase 5 once usage settles.
+    - **Image-gen approval gate: drafts first, manual promote** (decision #6). PNG lands in `drafts/artifacts/<date>/imagegen-<HHMMSS>-<slug>/`. Promote-to-wiki is the existing Phase 4 path.
+    - **gpt-image-1 default = medium ($0.04)** (decision #7); high ($0.167) is a per-call toggle in the Illustrate modal.
+    - **Raw studio endpoint emits `image/png|jpeg|webp` without `charset=utf-8`** — binary mimes get the bare type so browsers don't misinterpret bytes.
+    - **No vector store / no RAG** — chat system prompt loads the open artifact's content directly (50KB cap with `...[truncated]` suffix). Phase 5 may add retrieval when canon volume warrants.
+
 ---
 
 ## 15. Appendix

@@ -33,6 +33,17 @@ import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 const SONNET_MODEL = "claude-sonnet-4-6" as const;
 const MAX_PROMPT_CHARS = 4000; // ≈ 1000 tokens; soft cap on rerun input.
 
+/**
+ * Path to the Claude Code CLI binary. The Agent SDK shells out to it for
+ * the underlying agentic loop. Auto-discovery via `node_modules/.../linux-
+ * x64-musl/claude` fails on glibc systems (pei is glibc), so we always pass
+ * `pathToClaudeCodeExecutable` explicitly. Override via FARO_CLAUDE_CODE_PATH
+ * if your binary lives elsewhere.
+ */
+function getClaudeCodePath(): string {
+  return process.env.FARO_CLAUDE_CODE_PATH?.trim() || "/home/luca/.local/bin/claude";
+}
+
 let _tokenLoadedFrom: string | null = null;
 
 function ensureOAuthAuth(): void {
@@ -117,6 +128,7 @@ export async function rerunClaim(input: RerunClaimInput): Promise<RerunClaimResu
       maxTurns: 1,
       allowedTools: [],
       abortController: signalToController(input.signal),
+      pathToClaudeCodeExecutable: getClaudeCodePath(),
     },
   });
 
@@ -257,6 +269,7 @@ export async function* streamChat(input: StreamChatInput): AsyncGenerator<ChatSS
         maxTurns: 1,
         allowedTools: [],
         abortController: signalToController(input.signal),
+        pathToClaudeCodeExecutable: getClaudeCodePath(),
       },
     });
 

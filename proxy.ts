@@ -94,8 +94,13 @@ export function proxy(req: NextRequest) {
     if (owners.length > 0) {
       const requestHeaders = new Headers(req.headers);
       requestHeaders.set("x-faro-login", owners[0]);
-      setRequestCspHeaders(requestHeaders, nonce);
       console.log(`[faro] auth: dev-mode auto-login as ${owners[0]} for ${path}`);
+      if (isRawArtifactPath(path)) {
+        // Pass through — the route handler will set its own CSP tailored
+        // for sandboxed user-artifact HTML (unsafe-inline scripts).
+        return NextResponse.next({ request: { headers: requestHeaders } });
+      }
+      setRequestCspHeaders(requestHeaders, nonce);
       return attachNonce(NextResponse.next({ request: { headers: requestHeaders } }), nonce);
     }
   }
@@ -141,8 +146,20 @@ export function proxy(req: NextRequest) {
 
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-faro-login", login);
+  if (isRawArtifactPath(path)) {
+    // /studio/raw/<id> serves user-emitted HTML / SVG / images inside a
+    // sandboxed iframe. The route handler sets its own narrow CSP
+    // (`default-src 'none'; script-src 'unsafe-inline'; sandbox allow-scripts; ...`)
+    // sized for that purpose. Stamping the page nonce-CSP here would
+    // override it and break every artifact with inline `<script>`.
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
   setRequestCspHeaders(requestHeaders, nonce);
   return attachNonce(NextResponse.next({ request: { headers: requestHeaders } }), nonce);
+}
+
+function isRawArtifactPath(path: string): boolean {
+  return path.startsWith("/studio/raw/");
 }
 
 export const config = {

@@ -34,6 +34,53 @@ export interface PricingEntry {
 
 export type PricingTable = Record<PricingKey, PricingEntry>;
 
+/**
+ * Image-generation models (Phase 4.5 D6). Kept on a parallel allowlist so the
+ * tighter token-pricing guardrails above don't have to learn about image
+ * costs. Decision #7 from the plan locks gpt-image-1's default at medium
+ * quality ($0.04) — high ($0.167) is a per-call toggle in the IllustrateButton
+ * modal.
+ */
+export const IMAGE_PRICING_ALLOWLIST = [
+  "imagen-4.0-generate-001",
+  "gpt-image-1",
+  "gpt-image-1-high",
+] as const;
+
+export type ImagePricingKey = (typeof IMAGE_PRICING_ALLOWLIST)[number];
+
+export interface ImagePricingEntry {
+  pricePerImage: number;
+  provider: "google" | "openai";
+  description: string;
+}
+
+export const IMAGE_PRICING: Record<ImagePricingKey, ImagePricingEntry> = {
+  "imagen-4.0-generate-001": {
+    pricePerImage: 0.04,
+    provider: "google",
+    description: "Imagen 4 Standard, up to 1024×1024",
+  },
+  "gpt-image-1": {
+    pricePerImage: 0.04,
+    provider: "openai",
+    description: "gpt-image-1 medium quality (decision #7 default)",
+  },
+  "gpt-image-1-high": {
+    pricePerImage: 0.167,
+    provider: "openai",
+    description: "gpt-image-1 high quality — per-call toggle only",
+  },
+};
+
+export function getImagePrice(modelId: string, quality?: string): number {
+  if (modelId === "gpt-image-1" && quality === "high") {
+    return IMAGE_PRICING["gpt-image-1-high"].pricePerImage;
+  }
+  const entry = IMAGE_PRICING[modelId as ImagePricingKey];
+  return entry?.pricePerImage ?? 0;
+}
+
 const LITELLM_URL =
   "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
 

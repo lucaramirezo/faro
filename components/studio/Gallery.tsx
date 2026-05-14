@@ -27,6 +27,7 @@ const EMITTER_PROVIDER: Record<Emitter, Provider> = {
   ingest: "linear",
   slidev: "anthropic",
   recommender: "openrouter",
+  imagegen: "gemini-2",
   manual: "github",
 };
 

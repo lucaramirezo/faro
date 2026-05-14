@@ -4,6 +4,19 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { env } from "@/lib/env";
 
+/**
+ * Per-feature model binding. Phase 4.5 introduces `wiki_image` (Imagen 4
+ * default, gpt-image-1 swap-ready); future features land as new keys in
+ * the same `models` block without a schema bump.
+ */
+export const ModelSpecSchema = z.object({
+  provider: z.enum(["google", "openai"]),
+  model: z.string(),
+  quality: z.string().optional(),
+  aspect: z.string().optional(),
+});
+export type ModelSpec = z.infer<typeof ModelSpecSchema>;
+
 const ProfileSchema = z.object({
   profile: z.string(),
   display_name: z.string(),
@@ -15,6 +28,7 @@ const ProfileSchema = z.object({
   slack_workspace: z.string().optional(),
   owner_logins: z.array(z.string().email()),
   status: z.enum(["active", "inactive"]).default("active"),
+  models: z.record(z.string(), ModelSpecSchema).optional(),
 });
 
 export type Profile = z.infer<typeof ProfileSchema>;

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import type { Artifact } from "@/lib/artifacts-types";
 import type { HighlightPayload } from "./HighlightBridge";
 import { HtmlRenderer } from "./HtmlRenderer";
+import { ImageRenderer } from "./ImageRenderer";
 import { JsonRenderer } from "./JsonRenderer";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { SvgRenderer } from "./SvgRenderer";
@@ -41,6 +42,10 @@ export function Renderer({ artifact, onHighlight, codeNode }: RendererProps) {
       return <JsonRenderer artifact={artifact} />;
     case "image/svg+xml":
       return <SvgRenderer artifact={artifact} />;
+    case "image/png":
+    case "image/jpeg":
+    case "image/webp":
+      return <ImageRenderer artifact={artifact} />;
     case "text/x-code":
       return codeNode ?? <DownloadFallback artifact={artifact} />;
     default:

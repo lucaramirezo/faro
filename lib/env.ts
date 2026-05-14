@@ -24,6 +24,10 @@ const EnvSchema = z.object({
   FARO_CCUSAGE_PATH: z.string().default("ccusage"),
   FARO_OPENROUTER_API_KEY: z.string().optional(),
   FARO_OPENROUTER_API_KEY_FILE: z.string().optional(),
+  FARO_GEMINI_API_KEY: z.string().optional(),
+  FARO_GEMINI_API_KEY_FILE: z.string().optional(),
+  FARO_OPENAI_API_KEY: z.string().optional(),
+  FARO_OPENAI_API_KEY_FILE: z.string().optional(),
   FARO_PRICING_REFRESH_HOURS: z.coerce.number().default(168),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
 });
@@ -99,6 +103,57 @@ export function requireOpenRouterKey(): string {
   }
   throw new Error(
     "FARO_OPENROUTER_API_KEY (or _FILE) env var is required but unset. " +
+      "Set it in .env.local (laptop) or systemd LoadCredential (pei).",
+  );
+}
+
+/**
+ * Returns the Gemini (Google AI) API key or throws. Used by lib/providers.ts
+ * when the active profile's `models.<feature>` block routes to Google
+ * (e.g. Imagen 4 for wiki_image).
+ *
+ * Resolution order matches `requireOpenRouterKey`:
+ *   1. `FARO_GEMINI_API_KEY` env var (laptop `.env.local`)
+ *   2. `FARO_GEMINI_API_KEY_FILE` path (pei systemd `LoadCredential=`)
+ *   3. `$CREDENTIALS_DIRECTORY/gemini` (pei systemd fallback)
+ */
+export function requireGeminiKey(): string {
+  const e = loadEnv();
+  const direct = e.FARO_GEMINI_API_KEY?.trim() ?? "";
+  if (direct) return direct;
+  const fromFile = readKeyFile(e.FARO_GEMINI_API_KEY_FILE);
+  if (fromFile) return fromFile;
+  const credDir = process.env.CREDENTIALS_DIRECTORY?.trim();
+  if (credDir) {
+    const fromCred = readKeyFile(`${credDir.replace(/\/$/, "")}/gemini`);
+    if (fromCred) return fromCred;
+  }
+  throw new Error(
+    "FARO_GEMINI_API_KEY (or _FILE) env var is required but unset. " +
+      "Set it in .env.local (laptop) or systemd LoadCredential (pei).",
+  );
+}
+
+/**
+ * Returns the OpenAI API key or throws. Used by lib/providers.ts when the
+ * active profile's `models.<feature>` block routes to OpenAI (e.g.
+ * gpt-image-1 as the Imagen 4 swap-ready alternative).
+ *
+ * Resolution order matches `requireGeminiKey`.
+ */
+export function requireOpenAIKey(): string {
+  const e = loadEnv();
+  const direct = e.FARO_OPENAI_API_KEY?.trim() ?? "";
+  if (direct) return direct;
+  const fromFile = readKeyFile(e.FARO_OPENAI_API_KEY_FILE);
+  if (fromFile) return fromFile;
+  const credDir = process.env.CREDENTIALS_DIRECTORY?.trim();
+  if (credDir) {
+    const fromCred = readKeyFile(`${credDir.replace(/\/$/, "")}/openai`);
+    if (fromCred) return fromCred;
+  }
+  throw new Error(
+    "FARO_OPENAI_API_KEY (or _FILE) env var is required but unset. " +
       "Set it in .env.local (laptop) or systemd LoadCredential (pei).",
   );
 }

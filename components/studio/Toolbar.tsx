@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { openInClaudeCodeAction, promoteArtifactAction } from "@/app/actions/artifacts";
 import { Button } from "@/components/ui/button";
 import type { Artifact } from "@/lib/artifacts-types";
+import { IllustrateButton } from "./IllustrateButton";
 
 /**
  * Six-button studio toolbar (DESIGN.md §6.5):
@@ -160,6 +161,9 @@ export function Toolbar({ artifact, highlightActive, onToggleHighlight }: Toolba
         <HugeiconsIcon icon={ArrowUpRightIcon} size={14} strokeWidth={2} />
         Promote to wiki
       </Button>
+      <div className="ml-auto">
+        <IllustrateButton defaultSlug={artifact.label ?? undefined} />
+      </div>
     </div>
   );
 }

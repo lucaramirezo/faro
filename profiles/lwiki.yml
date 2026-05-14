@@ -9,3 +9,13 @@ slack_workspace: TRL
 owner_logins:
   - lucaramirezol@gmail.com
 status: active
+
+# Phase 4.5 D2 — per-feature model bindings.
+# Switch the wiki_image provider/model here to swap Imagen 4 → gpt-image-1
+# without code changes. Keys are merged with FALLBACK_PRICING in lib/pricing.ts.
+models:
+  wiki_image:
+    provider: google
+    model: imagen-4.0-generate-001
+    quality: standard
+    aspect: "16:9"

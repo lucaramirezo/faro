@@ -14,6 +14,9 @@ export const ARTIFACT_MIMES = [
   "text/html",
   "text/markdown",
   "image/svg+xml",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
   "application/json",
   "text/x-code",
 ] as const;
@@ -28,6 +31,7 @@ export const ARTIFACT_EMITTERS = [
   "ingest",
   "slidev",
   "recommender",
+  "imagegen",
   "manual",
 ] as const;
 

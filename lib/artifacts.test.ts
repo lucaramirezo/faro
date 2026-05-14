@@ -31,9 +31,16 @@ describe("mimeFromPath", () => {
     expect(mimeFromPath("foo.py")).toBe("text/x-code");
   });
 
+  it("maps raster image extensions added in Phase 4.5 D3", () => {
+    expect(mimeFromPath("foo.png")).toBe("image/png");
+    expect(mimeFromPath("foo.jpg")).toBe("image/jpeg");
+    expect(mimeFromPath("foo.jpeg")).toBe("image/jpeg");
+    expect(mimeFromPath("foo.webp")).toBe("image/webp");
+  });
+
   it("returns null for unsupported extensions", () => {
-    expect(mimeFromPath("foo.png")).toBeNull();
     expect(mimeFromPath("foo.pdf")).toBeNull();
+    expect(mimeFromPath("foo.bin")).toBeNull();
     expect(mimeFromPath("foo")).toBeNull();
   });
 
@@ -257,8 +264,8 @@ describe("scanArtifacts (integration)", () => {
 
   it("skips unsupported extensions", async () => {
     await fs.writeFile(
-      path.join(tmpRoot, "drafts", "artifacts", "2026-05-13", "run-001", "image.png"),
-      Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+      path.join(tmpRoot, "drafts", "artifacts", "2026-05-13", "run-001", "blob.bin"),
+      Buffer.from([0x00, 0x01, 0x02]),
     );
     await fs.writeFile(
       path.join(tmpRoot, "drafts", "artifacts", "2026-05-13", "run-001", "ok.html"),

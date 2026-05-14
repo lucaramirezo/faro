@@ -44,6 +44,11 @@ function isDownloadMime(mime: Mime): boolean {
   return mime === "text/x-code";
 }
 
+function isBinaryMime(mime: Mime): boolean {
+  // Phase 4.5 D4: raster image mimes are binary and must NOT carry charset.
+  return mime === "image/png" || mime === "image/jpeg" || mime === "image/webp";
+}
+
 export async function GET(
   _req: Request,
   ctx: { params: Promise<{ artifactId: string }> },
@@ -75,8 +80,11 @@ export async function GET(
     return NextResponse.json({ error: "file missing on disk" }, { status: 404 });
   }
 
+  const contentType = isBinaryMime(artifact.mime)
+    ? artifact.mime
+    : `${artifact.mime}; charset=utf-8`;
   const headers = new Headers({
-    "Content-Type": `${artifact.mime}; charset=utf-8`,
+    "Content-Type": contentType,
     "Content-Length": String(stats.size),
     "Content-Security-Policy": CSP_HEADER,
     "X-Content-Type-Options": "nosniff",

@@ -36,6 +36,10 @@ const MIME_BY_EXT: Record<string, Mime> = {
   ".md": "text/markdown",
   ".markdown": "text/markdown",
   ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
   ".json": "application/json",
   ".ts": "text/x-code",
   ".tsx": "text/x-code",
@@ -66,6 +70,7 @@ const EMITTER_PATTERNS: { match: RegExp; emitter: Emitter }[] = [
   { match: /ingest-review|\/ingest\//, emitter: "ingest" },
   { match: /\.slidev\.html|\/slidev\//, emitter: "slidev" },
   { match: /\/recommender\//, emitter: "recommender" },
+  { match: /\/imagegen[-_]|\/imagegen\//, emitter: "imagegen" },
 ];
 
 export function classifyEmitter(relativePath: string): Emitter {

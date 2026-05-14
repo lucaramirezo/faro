@@ -35,7 +35,11 @@ const config: NextConfig = {
   async headers() {
     return [
       {
-        source: "/(.*)",
+        // Exclude /studio/raw/<id> — the raw-artifact route handler sets its
+        // own narrow CSP tailored for sandboxed user-emitted HTML. Layering
+        // the fallback CSP on top creates a stricter combined policy that
+        // blocks the inline `<script>` tags artifacts are allowed to carry.
+        source: "/((?!studio/raw/).*)",
         headers: SECURITY_HEADERS,
       },
     ];

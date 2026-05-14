@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { CodeRenderer } from "@/components/studio/CodeRenderer";
 import { Gallery } from "@/components/studio/Gallery";
 import { Provenance } from "@/components/studio/Provenance";
+import { ProvenanceTabs } from "@/components/studio/ProvenanceTabs";
 import { StudioWorkspace } from "@/components/studio/StudioWorkspace";
 import { getArtifact, getArtifacts, scanArtifacts } from "@/lib/artifacts";
 import { ARTIFACT_ID_REGEX } from "@/lib/artifacts-types";
@@ -40,8 +41,11 @@ export default async function StudioDeepLinkPage({
       <main className="flex-1 flex flex-col min-w-0">
         <StudioWorkspace artifact={selected} codeNode={codeNode} />
       </main>
-      <aside className="w-[320px] shrink-0 border-l border-border overflow-y-auto bg-sidebar/40">
-        <Provenance artifact={selected} />
+      <aside className="w-[320px] shrink-0 border-l border-border overflow-y-auto bg-sidebar/40 min-h-0">
+        <ProvenanceTabs
+          artifactId={selected.artifact_id}
+          provenance={<Provenance artifact={selected} />}
+        />
       </aside>
     </div>
   );

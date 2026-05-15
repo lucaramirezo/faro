@@ -36,3 +36,42 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## nexu-io/html-anything (Apache-2.0)
+
+- **Files adapted from this project** (P1 Control Station, 2026-05-15):
+  - `lib/extract-html.ts` — the 5-rung `extractHtml` ladder + `previewHtml` ported
+    verbatim from `src/lib/extract-html.ts`. **Modification:** the rung-5
+    last-resort scaffold was rewritten to a self-contained inline-CSS document
+    (the upstream `https://cdn.tailwindcss.com` scaffold would render blank
+    under faro's `/studio/raw` `default-src 'none'; connect-src 'none'` CSP).
+  - `lib/generation.ts` — prompt **assembly order/structure** mirrored from
+    `src/lib/templates/shared.ts` (`assemblePrompt`: shared directives →
+    skill body → format → user content). The directive text itself is
+    re-authored in English (the upstream `SHARED_DESIGN_DIRECTIVES` is Chinese);
+    no upstream prose is copied.
+  - `.claude/skills/imported/<skill>/SKILL.md` — the §6.8 acceptance fixture is
+    re-authored in English from the `src/lib/templates/skills/saas-landing`
+    brief structure (no verbatim upstream prose); see its `attribution:`
+    frontmatter.
+- **Upstream repository**: https://github.com/nexu-io/html-anything
+- **Upstream commit referenced during the P1 port**: `b699e8a`
+- **License**: Apache License, Version 2.0 — https://www.apache.org/licenses/LICENSE-2.0
+  Licensed under the Apache License, Version 2.0; you may not use these files
+  except in compliance with the License. Files adapted here carry an in-file
+  attribution header and a "Modification" note per Apache-2.0 §4(b)/§4(c).
+  The full license text is available at the URL above.
+
+## nesquena/hermes-webui (MIT) — design lifted, not code
+
+- **Designs adopted (no source code copied)** (P1 Control Station, 2026-05-15):
+  - `lib/run-events.ts` — the run-adapter envelope field set (monotonic `seq`,
+    `run_id`, single `terminal` envelope) follows
+    `docs/rfcs/hermes-run-adapter-contract.md`.
+  - `lib/run-journal.ts` — the append-only turn-journal + fsync-before-gate
+    durability boundary + `?after_seq=` replay semantics follow
+    `docs/rfcs/turn-journal.md`.
+- **Upstream repository**: https://github.com/nesquena/hermes-webui
+- **Upstream commit referenced**: `5e518b1c`
+- **License**: MIT. Only the RFC *designs* were adopted; no Python/runtime
+  source was copied (the Nous-Hermes agent runtime is explicitly NOT lifted).

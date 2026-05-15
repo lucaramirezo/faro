@@ -1,12 +1,12 @@
 # faro — Agent OS Control Center
 
 **Name:** faro (Spanish for *lighthouse*).
-**Version:** v0.2 — Phase 4 rescope (Artifact Studio + Polish Pass).
-**Status:** Phases 0–2 SHIPPED. Phase 3 ready for `/plan-feature`. Phase 4 newly specced.
-**Date:** 2026-05-13 *(iteration #2; iteration #1 was commit `4f1da07` on 2026-05-12)*
+**Version:** v0.4 — Control Station *(updated 2026-05-15, iteration #5)*.
+**Status:** Phases 0–4.5 SHIPPED (Phase 4.5 tested 2026-05-15 — mostly good, kept). Control Station (v0.4) specced; P0 = this PRD.
+**Date:** 2026-05-15 *(iteration #5; #4 was Phase 4.5 on 2026-05-14; #1 was commit `4f1da07` on 2026-05-12)*
 **Owner:** Luca; co-author: lwiki agent.
 **Location:** `faro/faro-prd.md` (relocated here from repo root as part of Phase 0 scaffolding).
-**Supersedes:** the dream-only scope of [`lwiki_ui/`](../lwiki_ui/) — retired at the end of Phase 1.
+**Supersedes:** the dream-only scope of [`lwiki_ui/`](../lwiki_ui/) — retired at the end of Phase 1; AND the *content* of [`.agents/plans/faro-phase-4.6-agent-os.md`](../.agents/plans/faro-phase-4.6-agent-os.md) — its locked A/B/D workstreams re-sequence into the Control Station roadmap (§11) at increment ambition, not a rewrite.
 
 ---
 
@@ -19,6 +19,9 @@ Faro is the **persistent HTML control surface** for every autonomous agent in Lu
 3. **Inventories what the agent owns** — skills, memory, integrations, knowledge sources.
 4. **Renders artifacts** — links to (or embeds) HTML artifacts the agent produces for one-off rich content per [[the_unreasonable_effectiveness_of_html]].
 5. **Generalizes across agents** — every panel is scoped to the active **profile** (`faro/lwiki`, `faro/refactor-canon`); switcher in the nav.
+6. **Drives agents, not just views them** *(repositioned 2026-05-15, v0.4)* — faro launches, observes, gates (HIL), and hands off Claude Code runs. It is the **Control Station** of an agent OS for a solo operator running many agents. The studio (§6.6) is one surface; the spine is a run engine (§5.7).
+
+**Control Station identity (2026-05-15).** The Shann Holmberg agent-org-chart is a *mental model only*, not a build target. faro is exactly one box in it — the control station. Company/department "brains" stay in [[refactor-canon]] / TRL Company Brain (faro never owns knowledge). The orchestrator role is unfilled — the operator routes manually via faro; heartbeat/reflection are pipelines faro *observes*, not a router. Workers are Claude Code sessions/subagents via the Agent SDK. No org-chart/orchestrator/multi-tenant abstractions ship until earned.
 
 Core principles:
 
@@ -28,6 +31,7 @@ Core principles:
 - **Partner mode preserved.** Wiki writes are autonomous. Outbound actions and memory mutations require explicit approval — faro is the surface that *captures* the approval, never that bypasses it.
 - **Profile slug + active pill in the nav from v0.1.** Even when `lwiki` is the only profile, `faro/lwiki ● active` ships in v0.1 so the multi-agent generalization at Phase 4 is a data migration, not a UI rewrite.
 - **Perfect-fit architecture over reuse-existing.** Where the existing stack fits (Caddy on pei, shared SQLite WAL with slack_agent, Tailscale Serve, Ionos DNS, GitLab origin), we use it. Where it doesn't (Python+Jinja for a shadcn-Luma dashboard), we don't. **Decision: Full Next.js + shadcn Luma**, not the Hybrid D originally sketched. Rationale: true Luma fidelity needs Radix React; Basecoat is Luma-flavored at best. Luca's stated taste + KULT Pro stack reuse + the dream-card UX needing Framer Motion + Embla + cmdk all push the same direction.
+- **Lift, don't depend** *(added 2026-05-15, v0.4)*. External code is vendored into faro **with attribution, never tracked as a dependency** (open-design, html-anything, hermes-webui — see §5.7, §15.2). The Agent SDK is the *only* agent integration — never a CLI subprocess (it runs on Luca's Max subscription/OAuth). Jinja stays for deterministic approval pages; LLM-constrained generation only for rich one-off artifacts (the determinism boundary, §5.7).
 
 ---
 
@@ -40,6 +44,16 @@ Core principles:
 - **Legible.** A 30-second glance answers: how much have I spent today, what is the agent doing right now, what is waiting on me, is anything failing.
 - **Reviewable.** Every agent-proposed change (memory mutations, drafts, decisions) is reviewable at *claim-level* granularity, not document-level. Per-decision state, bulk operations, defer/needs-info paths.
 - **Re-routable.** When a recommended skill, a new integration, a re-run, or a new agent profile arrives, faro is the surface that captures the action — copy-as-prompt, install-skill, switch-profile.
+
+**Control Station thesis (added 2026-05-15, v0.4).** A cockpit that only *views* finished artifacts is lwiki_ui with tabs. The control station *drives*: faro launches a Claude Code run, streams its tokens/tools live, gates it (approve/clarify) inline, journals it for crash-safe replay, and hands off the result. Where faro sits in the Hermes mental model:
+
+| Hermes layer | Reality in Luca's stack | faro's role |
+|---|---|---|
+| Company / department brains | refactor-canon + TRL Company Brain | none — faro links out, never owns knowledge |
+| Orchestrator | unfilled — the human operator, manually, via faro | the manual routing surface |
+| Worker agents | Claude Code sessions / subagents (Agent SDK) | launched + observed + gated by faro |
+| Docker isolation | pei + per-project workspaces | surfaced, not owned |
+| **Control station** | was `lwiki_ui/` → faro | **the entire product** |
 
 ---
 
@@ -54,6 +68,8 @@ Core principles:
 Technical comfort: high. CLI-comfortable, accepts terse copy, expects keyboard-first interactions.
 
 **Auth decision (2026-05-12):** Tailscale-only for v0.1. Caddy + Ionos domain + Keycloak deferred until canon multi-user demand arrives — adding them now is half-day of work with zero benefit for single-user.
+
+**Reaffirmed (2026-05-15, v0.4):** single-user / solo-operator is the near-term target. "AI OS for any company/team" is the North Star — the `profile_id` seam (§5.2) is the only multi-tenant work that ships; actual tenancy (auth isolation, per-tenant data, RBAC) is explicitly **not** built in v0.4.
 
 ---
 
@@ -356,6 +372,33 @@ CREATE INDEX idx_artifacts_source  ON artifacts(source, profile_id, created_at D
 
 **Security:** all bundle.html files are rendered in `<iframe sandbox>` (see §6.6.4). Path operations go through the existing `_assert_under` TS port.
 
+### 5.7 Control Station architecture *(added 2026-05-15, v0.4)*
+
+v0.4 turns the cockpit into the **Control Station**. The studio (§6.6) becomes one surface; the new spine is a **run engine** built ON TOP OF the Phase 4.5 `lib/agent-sdk.ts:streamChat` path (kept — tested 2026-05-15, mostly good; NOT rebuilt).
+
+**Agent integration: Claude Agent SDK only.** Never a CLI subprocess. Reason: the SDK runs on Luca's Max subscription/OAuth — `ANTHROPIC_API_KEY` unset, headless via `claude setup-token` (the OAuth-billing-leak + setup-token rules). This reaffirms decision 23's chat-provider lock and extends it to the run engine.
+
+**Run engine pieces (new, additive):**
+
+- **Run-adapter event contract** — a runtime-agnostic envelope (`run_id`, monotonic `seq`, kinds `token | tool | approval | clarify | done | error`, plus a reconnect/replay spec). faro's canonical wire format. Model lifted from `nesquena/hermes-webui` `docs/rfcs/hermes-run-adapter-contract.md` (MIT — design, not code).
+- **Turn-journal** — crash-safe write-ahead journal of every run; enables reconnect + replay after a faro restart. Design lifted from hermes-webui's turn-journal RFC (MIT).
+- **`runs` + `run_events` tables** — additive SQLite, `profile_id`-scoped (single-tenant now; multi-tenant seam only).
+- **HIL gate as a run primitive** — the `approval` / `clarify` event kinds unify with the existing dreams/claims approval surfaces (one gate, many sources). Partner mode preserved: faro captures, never bypasses.
+
+**Boundary contract.** faro is the control station ONLY. Company/department "brains" stay in [[refactor-canon]] / TRL Company Brain — faro links out, never owns knowledge. The orchestrator role is unfilled; heartbeat/reflection are autonomous pipelines faro *observes*, explicitly NOT a router. No automated orchestration, no department/orchestrator abstractions, no org-chart ship in v0.4.
+
+**Lift posture.** All external code is vendored into faro **with attribution, never tracked as a dependency**; no per-skill license audit (accepted 2026-05-15):
+
+| Source | License | What faro lifts | Explicitly NOT lifted |
+|---|---|---|---|
+| `nexu-io/open-design` | Apache-2.0 | sniper edit-mode bridge / source-patches / projects / stub-guard | — |
+| `nexu-io/html-anything` | Apache-2.0 | SDK-compatible event-shaping + `extract-html` + SSE convert-route pattern + `SKILL.md` design directives + ~75 skills | spawn/argv **CLI** layer; WeChat/Zhihu/Weibo/XHS exports + CJK-only skills |
+| `nesquena/hermes-webui` | MIT | run-adapter event contract, approval/clarify HIL flow, turn-journal replay design | the Nous-Hermes agent runtime; process-global-env concurrency model |
+
+> Note: `nesquena/hermes-webui` is a UI for Nous Research's *single* Hermes Agent — NOT the Holmberg org-chart. The "teams of agents" concept is unbuilt upstream backlog (their issue #719). The org-chart is net-new and out of scope.
+
+**Determinism boundary.** Jinja stays for deterministic approval/review pages (dreams, claims, code-review — fast, free, Tailscale-safe). LLM-constrained generation (html-anything's `SKILL.md` → Claude writes single-file HTML, rescued from the Write tool, streamed live) is **only** for rich one-off artifacts — its cost/latency/non-determinism is wrong for review gates. Extends §6.6.3; does not replace it.
+
 ---
 
 ## 6. Feature specification
@@ -541,6 +584,18 @@ The ingest review is the highest-leverage NEW use case: it's the single most-rep
 - `postMessage` handler validates `origin === window.location.origin` and `event.data.type === 'faro:highlight'`; drops everything else.
 - Artifacts table writes go through the same `_git_commit_state_change` audit trail as claim decisions.
 
+### 6.7 Run engine + live runs *(added 2026-05-15, v0.4 — the control-station centerpiece)*
+
+A studio panel (Dockview tab from P2) that launches a Claude Code run via the Agent SDK and streams the §5.7 run-adapter envelope live: token stream, tool cards, inline `approval` / `clarify` gates, cost/usage on `done`. Reconnect-safe via the turn-journal — closing the browser or restarting faro does not lose a run. This is the reason the control station exists: faro *drives* agents, it does not merely view their output. Extends, does not replace, the Phase 4.5 studio Chat tab.
+
+### 6.8 Skills tab — LIVE *(added 2026-05-15, v0.4)*
+
+The Phase 2 Skills panel graduates from inventory-only to **live**: imported `html-anything` `SKILL.md` design briefs register and render in the Skills tab (no stub), are selectable as the brief for the artifact-generation path (§6.9), and display source + attribution. Acceptance bar: an imported skill appears in the tab and is selectable end-to-end. This is a hard v0.4 deliverable, not "wire later."
+
+### 6.9 Artifact generation path *(added 2026-05-15, v0.4)*
+
+A new generation surface, distinct from the deterministic Jinja emitters (§6.6.3): the user picks a `SKILL.md` brief → faro assembles `[shared anti-AI-slop directives] + [skill body] + [content]` → Agent SDK run → HTML rescued from the Write tool with `extract-html` fallback → streamed into a sandboxed iframe. Sandbox stays `allow-scripts` only — html-anything ships `allow-scripts allow-same-origin` (which defeats the sandbox); faro's Phase 4 contract (§6.6.4) is non-negotiable and must NOT regress. Generation routes are Tailnet-only and never exposed beyond loopback.
+
 ---
 
 ## 7. Tech stack
@@ -604,6 +659,26 @@ The ingest review is the highest-leverage NEW use case: it's the single most-rep
 - ❌ **Monaco entirely** *(2026-05-13, iteration #3)* — first reduced to read-only (would have made faro a second writer to artifacts Claude Code owns on disk; sync conflicts), then dropped in favor of Shiki RSC: zero client bundle, no `worker-src` CSP carve-out, no second-writer surface. Editing/navigation goes through `[Open in Claude Code]` handoff.
 - ❌ **File tree in the studio** *(2026-05-13)* — faro is a cockpit, not an IDE; the user has Claude Code one keystroke away. Reverse-chronological grouped-by-run list is the cockpit primitive (Manus/Replit Agent 4 pattern).
 - ❌ **In-browser real-time collaboration** *(2026-05-13)* — single-user system; no Yjs/Liveblocks/CRDTs.
+
+**v0.4 Control Station additions (added 2026-05-15):**
+
+| Layer | Choice | Rationale |
+|---|---|---|
+| Agent integration | `@anthropic-ai/claude-agent-sdk` ONLY | Runs on Luca's Max sub/OAuth; never CLI subprocess. `ANTHROPIC_API_KEY` unset; headless via `claude setup-token`. Extends decision 23. |
+| Run event contract | hermes-webui run-adapter envelope (design lifted, MIT) | Runtime-agnostic; reconnect/replay built in. |
+| Crash-safe runs | hermes-webui turn-journal (design lifted, MIT) | WAL-style replay after a faro restart. |
+| Workspace shell | Dockview (carried from the superseded 4.6 plan) | popout / split / serialize for free. |
+| Server DOM / zip | linkedom, fflate (carried from 4.6) | sniper patches + bundle export. |
+| Generation harness | html-anything `extract-html` + SSE convert pattern (lifted, Apache-2.0) | Claude-writes-HTML rescued from the Write tool. |
+| Sniper edit | open-design edit-mode / source-patches / stub-guard (lifted, Apache-2.0) | manual element nudging (old 4.6 Workstream B). |
+
+**Explicit non-choices (v0.4, added 2026-05-15):**
+
+- ❌ **Claude CLI subprocess + stream-json parsing** — html-anything's spawn/argv layer. Rejected: the Agent SDK already runs on the subscription; a subprocess parser is a regression.
+- ❌ **Org-chart / department / orchestrator abstractions** — Hermes is a mental model; even mature hermes-webui punted "teams of agents" to backlog. Not until earned.
+- ❌ **Multi-tenant / tenancy build-out** — North Star only; `profile_id` seam exists, tenancy does not ship in v0.4.
+- ❌ **Replacing Jinja approval pages with LLM generation** — the determinism/cost boundary (§5.7).
+- ❌ **Per-skill license audit of lifted html-anything skills** — accepted as-is 2026-05-15; revisit only if faro is ever published beyond the Tailnet.
 
 ---
 
@@ -908,6 +983,20 @@ Bundled with Track A; ships as one "faro feels finished" release.
 
 **Validation:** switch profile in the team-switcher, every panel rescopes including the studio gallery; canon-bot writes traces faro can browse.
 
+### Phase 4.6+ — Control Station (v0.4) *(added 2026-05-15 — supersedes the content of [`.agents/plans/faro-phase-4.6-agent-os.md`](../.agents/plans/faro-phase-4.6-agent-os.md))*
+
+**Goal:** turn faro from a viewer/approver into the Control Station — faro launches, observes, gates, and hands off Claude Code runs. Built on top of Phase 4.5 (kept). **Increment ambition, not a rewrite.** The locked 4.6 A/B/D workstreams re-sequence here; the old `Phase 5 — Multi-agent + Langfuse` still follows, unchanged, gated on canon multi-user demand.
+
+- [x] **P0 — This PRD.** Control Station repositioning captured: boundary contract, lift posture, determinism boundary, run-engine spine, roadmap below. No code. *(complete on write, 2026-05-15)*
+- [ ] **P1 — Run-engine spine.** Extend `lib/agent-sdk.ts:streamChat`; adopt the hermes-webui run-adapter event contract + turn-journal; add `runs`/`run_events` tables; live Skills tab (§6.8); artifact-generation path (§6.9).
+  - **Phase gate:** a research-exploration prime + an explicit acceptance round (clarifying-question gate) BEFORE `/plan-feature` (mirrors the working pattern of the 2026-05-15 priming session). The P1 DESIGN.md must answer: run-event envelope vs the existing 4.5 SSE vocabulary; turn-journal storage shape (`run_events` table vs append-only jsonl); Agent SDK session + permission model on pei; Skills-tab registration/namespacing/attribution contract; generation-iframe sandbox hardening.
+- [ ] **P2 — Studio-as-surface.** Dockview workspace + projects table (old 4.6 Workstream A). Panels now include Run + Board, not just artifacts.
+- [ ] **P3 — HIL gate unification.** `approval` / `clarify` as run primitives merged with the dreams/claims surfaces (old 4.6 + hermes-webui flow). Preserves partner mode.
+- [ ] **P4 — Sniper + Handoff carryover.** Old 4.6 Workstreams B + D (open-design sniper, Claude-Design handoff modal, PDF/ZIP/standalone exports), largely intact.
+  - **Phase gate:** artifact-pipeline DESIGN.md (sniper write-path, stub-guard, `faro.manifest.v1` schema) before `/execute` — carries the §6.6 / §15.3 DESIGN.md discipline forward.
+
+**Validation:** faro launches a Claude Code run, streams tokens/tools live, an inline approval gate blocks then resumes it, the run survives a faro restart (turn-journal replay), an imported skill appears in the live Skills tab and generates a streamed HTML artifact.
+
 ---
 
 ## 12. Future considerations
@@ -919,6 +1008,10 @@ Bundled with Track A; ships as one "faro feels finished" release.
 - **Two-way artifact interaction** (Thariq sliders, knobs, drag-reorder) — Phase 5+.
 - **Eval workflows via Langfuse datasets** — only if dream quality regresses.
 - **Public-facing SaaS version** — explicit non-goal.
+- **Agent org-chart / department brains / orchestrator** *(2026-05-15)* — the Hermes model is a mental model; explicit non-goal until earned. Brains live in refactor-canon, not faro.
+- **Automated orchestration / routing** *(2026-05-15)* — the operator routes manually via faro in v0.4; an automated router is net-new and out of scope.
+- **Multi-tenant SaaS** *(2026-05-15)* — North Star only; the `profile_id` seam is designed, tenancy is not built.
+- **Multi-provider / non-Claude agents** *(2026-05-15)* — Claude Code only for now; pluggable harnesses are a future aspiration, not v0.4.
 
 ---
 
@@ -945,6 +1038,12 @@ Bundled with Track A; ships as one "faro feels finished" release.
 | **Provider-chip palette drift** *(Phase 4)* | Low | Low | Brand hexes are committed as `oklch` CSS vars in one place (`globals.css` `@theme`); never inlined per-component. Annual brand audit OR on user request. OpenRouter hex is unverified — fallback documented in source comment. |
 | **shadcn `sidebar-07` upstream drift** *(Phase 4)* | Med | Low | Pin via `shadcn/create` snapshot at the start of Phase 4 Track B; re-pull on next PRD iteration. Layout-level component, so drift is visible immediately. |
 | **`postMessage` highlight feature breaks on cross-origin bundles** *(Phase 4)* | Med | Med | Bundle.html is served from same origin (`/studio/raw/<id>`), so `origin` check passes. If a future feature hosts artifacts on a separate subdomain, the highlight bridge needs an explicit origin allowlist. |
+| **SDK→CLI regression temptation** *(v0.4)* | Low | Med | Locked: Agent SDK only (§7 non-choices, decision 26). Lift html-anything's *shaping* layer, never its spawn/argv. |
+| **html-anything bus-factor** — 4-day-old repo, 2 humans, AI-authored commits, no tests *(v0.4)* | High | Low | Vendored with attribution, NOT a tracked dep; only stable shaping/extract logic + `SKILL.md` assets lifted. |
+| **Un-audited bundled skills carry upstream licenses** *(v0.4)* | Med | Low | Accepted 2026-05-15 (no per-skill audit). Revisit only if faro is published beyond the Tailnet. |
+| **iframe sandbox regression when lifting html-anything preview** *(v0.4)* | Med | High | html-anything ships `allow-scripts allow-same-origin`; faro's Phase 4 `allow-scripts`-only contract (§6.6.4, §6.9) is non-negotiable. E2E hostile-bundle test in P4. |
+| **"Control Station" scope creep** *(v0.4)* | High | Med | Increment ambition, not a rewrite; org-chart/orchestrator explicitly out (§12); P1 gated on DESIGN.md + acceptance round. |
+| **Phase 4.5 kept but only lightly tested** *(v0.4)* | Med | Med | User tested 2026-05-15 ("mostly good"); P1 extends, never rebuilds; turn-journal + P1 tests harden the run path it sits on. |
 
 ---
 
@@ -999,6 +1098,28 @@ Bundled with Track A; ships as one "faro feels finished" release.
     - **Raw studio endpoint emits `image/png|jpeg|webp` without `charset=utf-8`** — binary mimes get the bare type so browsers don't misinterpret bytes.
     - **No vector store / no RAG** — chat system prompt loads the open artifact's content directly (50KB cap with `...[truncated]` suffix). Phase 5 may add retrieval when canon volume warrants.
 
+**2026-05-15 (iteration #5 — Control Station repositioning):**
+
+24. **faro = the Control Station** of an agent OS for a solo operator running many Claude Code agents. The studio becomes one surface; the spine is a run engine (§5.7, §6.7). The Holmberg agent-org-chart is a mental model, not a build target. This repositions the *product* framing above decisions 13–14 (the studio-shape decisions themselves still stand).
+25. **Scope = incremental v0.4, not a v2 rewrite.** Built on top of Phase 4.5 (kept — tested 2026-05-15, mostly good). Supersedes the *content* of [`.agents/plans/faro-phase-4.6-agent-os.md`](../.agents/plans/faro-phase-4.6-agent-os.md); its A/B/D workstreams re-sequence into the §11 Control Station roadmap.
+26. **Agent integration: Claude Agent SDK ONLY; CLI subprocess rejected.** Reason: the SDK runs on Luca's Max subscription/OAuth. Reaffirms decision 23's chat-provider lock and extends it to the run engine. `ANTHROPIC_API_KEY` unset; headless via `claude setup-token`.
+27. **Boundary: control station only.** Company/department "brains" stay in refactor-canon / TRL Company Brain; faro never owns company knowledge. The orchestrator role is unfilled — heartbeat/reflection are pipelines faro *observes*, not a router; the operator routes manually. No org-chart/orchestrator abstractions until earned.
+28. **Lift posture: vendor with attribution, no per-skill license audit.** Sources: `nexu-io/open-design` (Apache-2.0 — sniper), `nexu-io/html-anything` (Apache-2.0 — shaping/`extract-html`/SSE/`SKILL.md` + ~75 skills; NOT its CLI layer, NOT CJK/WeChat surfaces), `nesquena/hermes-webui` (MIT — run-adapter contract + approval/clarify + turn-journal; NOT the org-chart Hermes — it is a UI for Nous Research's single Hermes Agent, "teams of agents" is unbuilt upstream backlog issue #719).
+29. **Skills tab goes LIVE.** Imported html-anything skills register + render in the Skills tab (no stub) and are selectable for the artifact-generation path. A hard v0.4 deliverable.
+30. **Determinism boundary.** Jinja stays for deterministic approval/review pages; LLM-constrained generation only for rich one-off artifacts (cost/latency/non-determinism). Extends the §6.6.3 emitter table; does not replace it.
+31. **P1 is phase-gated on a research-exploration prime + an acceptance round before `/plan-feature`** (mirrors the 2026-05-15 priming-session pattern that produced this iteration).
+
+**2026-05-15 (iteration #6 — P1 Run-engine spine SHIPPED; plan `.agents/plans/faro-p1-run-engine-spine.md`):**
+
+32. **P1 run-engine spine — the 6 locked gate answers (acceptance round 2026-05-15), implemented, not redesigned:**
+    - **Q1 — Event contract: WRAP, not replace.** New `lib/run-events.ts` `RunEvent` discriminated union on a `kind` discriminant, disjoint from Phase 4.5 `ChatSSEEvent` (`type`). 4.5 `streamChat` / `/api/chat` / `Chat.tsx` byte-for-byte unchanged (`agent-sdk.test.ts` still green). Runs stream from a NEW `/api/runs/[runId]/stream`; data-only SSE wire (`data: <json>\n\n`); reconnect via `?after_seq=` replayed from the journal.
+    - **Q2 — Journal: JSONL = source of truth, SQLite = rebuildable index.** `drafts/runs/<run_id>/journal.jsonl`, append-only, fsync on first event + every approval/clarify/gate_resolved/terminal + a best-effort directory fsync. `runs`/`run_events` are derived (`reconcileRunsFromJournals`, idempotent, run guarded once on first `getDb()`); run durability never touches the Python-shared `state.db` hot path. The engine is the SINGLE journal writer; the SSE route only tails (250ms poll).
+    - **Q3 — Session/permission: setup-token auth UNCHANGED + default-deny `canUseTool` (no allowlist).** `ensureOAuthAuth`/`signalToController`/`getClaudeCodePath` exported from `agent-sdk.ts` (export-only, zero behavior change) and reused. `maxTurns` = `FARO_RUN_MAX_TURNS`, default **16**, env-overridable.
+    - **N1 — Gate vs SDK wall-clock: cancel + resume-replay (CONFIRMED viable).** Verified against the installed `@anthropic-ai/claude-agent-sdk@0.2.140` `sdk.d.ts`: `Options.resume?: string` (session id), `canUseTool` is 3-arg returning `{behavior:"deny",message,interrupt?}` — `interrupt` OMITTED cancels only the tool, the turn ends naturally (no process kill); a `system/permission_denied` message accompanies the deny and is tolerated. Gate denies → journals `approval` (fsync) → turn ends → operator answer resumes the session (`resume=session_id`) with a continuation message; seq stays monotonic across the resumed turn (persisted `runs.last_seq`, robust to a restart between gate and answer). **No abort-mid-tool fallback needed.**
+    - **Q4 — Skills: dedicated `imported` scope.** `SkillScope` widened; third scan root `<agent_root>/faro/.claude/skills/imported/`; `attribution` parsed from frontmatter → card badge; lazy `loadSkillBody()` for §6.9. Precedence **project > imported > global**.
+    - **Q5 — Generation sandbox: reuse the existing `/studio/raw` `allow-scripts`-only CSP UNCHANGED.** Generation v1 is tools-OFF (`allowedTools:[]`, no `canUseTool`); HTML recovered from streamed assistant TEXT via the vendored `lib/extract-html.ts` ladder (html-anything Apache-2.0 @b699e8a; rung-5 `cdn.tailwindcss.com` scaffold replaced with a self-contained inline doc) and written to `drafts/artifacts/<date>/<run_id>/generated.html` where `scanArtifacts` indexes it. Never `allow-same-origin`.
+    - **Scope boundary held:** Dockview workspace = P2; HIL gate *unification* with dreams/claims = P3 (P1 ships the gate *primitive*); sniper/handoff/exports = P4. `db.ts:ensureSchema` ⇆ `migrate.ts` drift reconciled for the new tables only (the pre-existing `artifacts`/`provider_calls` `ensureSchema` omission is left as-is, flagged for future cleanup). `recordCall` deliberately NOT called for runs (Max-sub OAuth absorbs cost). All 5 validation levels green (Level 4 manual = pei live test); 125/125 tests; standalone build OK.
+
 ---
 
 ## 15. Appendix
@@ -1010,6 +1131,8 @@ Bundled with Track A; ships as one "faro feels finished" release.
 - [`CLAUDE.md`](../CLAUDE.md) — vault structure, session protocol
 - [`.claude/commands/create-agent-os-prd.md`](../.claude/commands/create-agent-os-prd.md) — iterator for this PRD
 - [`lwiki_ui/`](../lwiki_ui/) — predecessor package; retires at end of Phase 1
+- [`.agents/plans/faro-phase-4.6-agent-os.md`](../.agents/plans/faro-phase-4.6-agent-os.md) — superseded 2026-05-15; A/B/D workstreams re-sequenced into the §11 Control Station roadmap
+- *Hermes Agent company org-chart explained* (Shann Holmberg model) — user-provided 2026-05-15; mental model only, not tracked in-repo
 
 ### 15.2 Research citations
 
@@ -1026,6 +1149,12 @@ Bundled with Track A; ships as one "faro feels finished" release.
 - [langfuse/langfuse](https://github.com/langfuse/langfuse) — MIT v3. Phase 4 trace backbone (deferred).
 - [abhi1693/openclaw-mission-control](https://github.com/abhi1693/openclaw-mission-control) — MIT. Approval-flow UX reference.
 - [nesquena/hermes-webui](https://github.com/nesquena/hermes-webui) — inspiration only.
+
+**Control Station lift sources — added 2026-05-15 (vendored with attribution, NOT dependencies):**
+
+- [nexu-io/open-design](https://github.com/nexu-io/open-design) — Apache-2.0. Sniper edit-mode bridge / source-patches / projects / stub-guard (old 4.6 Workstream B).
+- [nexu-io/html-anything](https://github.com/nexu-io/html-anything) — Apache-2.0 (released ~2026-05-11; young, 2 contributors, AI-authored, no tests — reference to lift, not track). Lifted: `extract-html`, SSE convert-route pattern, `SKILL.md` anti-AI-slop design directives + ~75 skills. **NOT lifted:** the spawn/argv **CLI** layer; WeChat/Zhihu/Weibo/XHS export surfaces + CJK-only skills.
+- [nesquena/hermes-webui](https://github.com/nesquena/hermes-webui) — MIT (mature; 5.3k tests). Lifted as *design*: run-adapter event contract (`docs/rfcs/hermes-run-adapter-contract.md`), approval/clarify HIL flow, turn-journal replay. **Correction:** this is a UI for Nous Research's *single* Hermes Agent, NOT the Holmberg org-chart — "teams of agents" is unbuilt upstream backlog (issue #719). The org-chart is net-new and out of scope.
 
 **UX references for sharded dream review:**
 
@@ -1111,3 +1240,11 @@ Bundled with Track A; ships as one "faro feels finished" release.
 - **VS Code deep-link UX on pei** — laptop has VS Code via `vscode://`; pei doesn't. The `[Open in Claude Code]` toolbar action currently copies a `claude --resume` invocation to clipboard on pei. Is that enough, or do we need a server-side "spawn claude session" endpoint? Defer unless it bites.
 - **`heartbeat/morning_brief.py` existence** — Phase 4 Track A assumes this file exists; audit at execute time. If not, the brief emitter ships as a new file co-located with `heartbeat/`.
 - **Bell notification scope** — pull-only popover vs SSE push? Pull is simpler; SSE earns its keep only if pending-items volume gets high. Start with pull; revisit in Phase 5.
+
+**Control Station (v0.4) — added 2026-05-15; ALL CLOSED 2026-05-15 by the P1 acceptance round + the shipped P1 spine (decision 32, plan `.agents/plans/faro-p1-run-engine-spine.md`):**
+
+- **Run-event envelope vs Phase 4.5 SSE** — ~~replace or wrap?~~ **Closed (2026-05-15, Q1):** WRAP. New `RunEvent`/`kind` union disjoint from `ChatSSEEvent`; 4.5 path byte-for-byte unchanged; new `/api/runs/[runId]/stream` + `?after_seq=` replay.
+- **Turn-journal storage** — ~~`run_events` table vs append-only jsonl?~~ **Closed (2026-05-15, Q2):** BOTH — JSONL is the source of truth (`drafts/runs/<run_id>/journal.jsonl`, fsync-on-gate), `runs`/`run_events` a rebuildable index reconciled on boot.
+- **Agent SDK session + permission model on pei** — ~~resumable sessions; canUseTool posture?~~ **Closed (2026-05-15, Q3/N1):** setup-token auth unchanged; SDK `resume` + raised `maxTurns` (env `FARO_RUN_MAX_TURNS`, default 16) + default-deny `canUseTool`; deny-then-resume verified against installed SDK `0.2.140`.
+- **Skills-tab registration contract** — ~~discovery/namespacing/attribution/dedup?~~ **Closed (2026-05-15, Q4):** dedicated `imported` scope; root `<agent_root>/faro/.claude/skills/imported/`; `attribution` frontmatter→badge; lazy `loadSkillBody()`; precedence project > imported > global.
+- **Generation sandbox hardening** — ~~separate-origin vs allow-scripts-only?~~ **Closed (2026-05-15, Q5):** reuse the existing `/studio/raw` `allow-scripts`-only CSP UNCHANGED; generation tools-OFF, HTML via `extract-html` (self-contained scaffold, no external CDN); never `allow-same-origin`.

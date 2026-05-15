@@ -19,6 +19,7 @@ export default async function SkillsPage() {
   const [skills, usage] = await Promise.all([skillsPromise, usagePromise]);
 
   const projectSkills = skills.filter((s) => s.scope === "project");
+  const importedSkills = skills.filter((s) => s.scope === "imported");
   const globalSkills = skills.filter((s) => s.scope === "global");
 
   return (
@@ -37,6 +38,12 @@ export default async function SkillsPage() {
         skills={projectSkills}
         usage={usage}
         emptyHint="No project skills found."
+      />
+      <Section
+        title="Imported"
+        skills={importedSkills}
+        usage={usage}
+        emptyHint="No imported skills found. Vendored html-anything SKILL.md briefs live under faro/.claude/skills/imported/."
       />
       <Section
         title="Global"

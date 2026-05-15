@@ -1,6 +1,17 @@
 // Adapted from developer-hasm/claude-code-dashboard (MIT). See LICENSE-third-party.md.
 
-export type SkillScope = "global" | "project";
+// P1 (Q4, locked 2026-05-15): a dedicated `imported` scope for vendored
+// html-anything SKILL.md briefs. Precedence: project > imported > global.
+export type SkillScope = "global" | "project" | "imported";
+
+/** Provenance for a vendored/imported skill (Q4 attribution badge). Parsed
+ *  from `attribution:` frontmatter, or the
+ *  `source_repo`/`source_license`/`source_commit` flat fallbacks. */
+export interface SkillAttribution {
+  repo: string;
+  license: string;
+  commit?: string;
+}
 
 export interface Skill {
   name: string;
@@ -8,6 +19,8 @@ export interface Skill {
   path: string;
   description: string;
   frontmatter: Record<string, unknown>;
+  /** Present for imported skills with provenance frontmatter. */
+  attribution?: SkillAttribution;
 }
 
 export interface SkillUsage {

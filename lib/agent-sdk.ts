@@ -33,6 +33,12 @@ import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 const SONNET_MODEL = "claude-sonnet-4-6" as const;
 const MAX_PROMPT_CHARS = 4000; // ≈ 1000 tokens; soft cap on rerun input.
 
+// P1: getClaudeCodePath / ensureOAuthAuth / signalToController are exported
+// and shared verbatim with lib/run-engine.ts (the Control Station run engine).
+// Their behavior, order, and the _tokenLoadedFrom memoization MUST NOT change —
+// the billing-leak guard (ensureOAuthAuth) is reused inside the engine's
+// async-generator try block (feedback_faro_phase_4_5_lessons).
+
 /**
  * Path to the Claude Code CLI binary. The Agent SDK shells out to it for
  * the underlying agentic loop. Auto-discovery via `node_modules/.../linux-
@@ -40,13 +46,13 @@ const MAX_PROMPT_CHARS = 4000; // ≈ 1000 tokens; soft cap on rerun input.
  * `pathToClaudeCodeExecutable` explicitly. Override via FARO_CLAUDE_CODE_PATH
  * if your binary lives elsewhere.
  */
-function getClaudeCodePath(): string {
+export function getClaudeCodePath(): string {
   return process.env.FARO_CLAUDE_CODE_PATH?.trim() || "/home/luca/.local/bin/claude";
 }
 
 let _tokenLoadedFrom: string | null = null;
 
-function ensureOAuthAuth(): void {
+export function ensureOAuthAuth(): void {
   // Fail fast if the API key is set — billing-leak rule. Checked on every
   // call (cheap env read) so the guard catches runtime env mutations too.
   if (process.env.ANTHROPIC_API_KEY) {
@@ -166,7 +172,7 @@ export async function rerunClaim(input: RerunClaimInput): Promise<RerunClaimResu
   };
 }
 
-function signalToController(signal: AbortSignal | undefined): AbortController | undefined {
+export function signalToController(signal: AbortSignal | undefined): AbortController | undefined {
   if (!signal) return undefined;
   const ctrl = new AbortController();
   if (signal.aborted) ctrl.abort(signal.reason);

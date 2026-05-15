@@ -1,5 +1,6 @@
 import { SparklesIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import type { Skill, SkillUsage } from "@/lib/skills/types";
@@ -47,6 +48,12 @@ export function SkillCard({ skill, usage }: SkillCardProps) {
             <p className="text-xs text-muted-foreground truncate">
               {skill.description || "No description"}
             </p>
+            {skill.attribution && (
+              <p className="mt-1 font-mono text-[10px] text-muted-foreground/80 truncate">
+                src: {skill.attribution.repo} · {skill.attribution.license}
+                {skill.attribution.commit ? ` · ${skill.attribution.commit}` : ""}
+              </p>
+            )}
           </div>
         </div>
         <Badge variant="outline" className="text-xs shrink-0">
@@ -63,6 +70,14 @@ export function SkillCard({ skill, usage }: SkillCardProps) {
           <span className="tabular-nums">{relativeFromNow(usage?.lastUsed ?? null)}</span>
         </li>
       </ul>
+      {skill.scope === "imported" && (
+        <Link
+          href={`/runs?new=generation&skill=${encodeURIComponent(skill.name)}`}
+          className="inline-flex items-center justify-center rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          Generate
+        </Link>
+      )}
     </Card>
   );
 }

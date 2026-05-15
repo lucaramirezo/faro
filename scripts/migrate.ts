@@ -156,11 +156,46 @@ db.exec(`
 `);
 console.log("[faro] migrate: ensured provider_calls table + indexes");
 
+// P1 Control Station run engine (additive). Q2: SQLite is a *rebuildable
+// index* over the JSONL turn-journals — durability lives in the journal, not
+// here. Independent of the Patch-B `pipeline_runs` dream lifecycle: do NOT FK
+// `runs` to `pipeline_runs` (AGENTS.md deviation 10). IF NOT EXISTS keeps this
+// idempotent and harmless on the real shared slack_agent state.db.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS runs (
+    run_id        TEXT PRIMARY KEY,
+    profile_id    TEXT NOT NULL DEFAULT 'lwiki',
+    session_id    TEXT,
+    status        TEXT NOT NULL DEFAULT 'queued',
+    skill_name    TEXT,
+    title         TEXT,
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ended_at      TIMESTAMP,
+    last_seq      INTEGER NOT NULL DEFAULT -1,
+    cost_usd      REAL,
+    journal_path  TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_runs_profile ON runs(profile_id, created_at DESC);
+  CREATE TABLE IF NOT EXISTS run_events (
+    run_id   TEXT NOT NULL,
+    seq      INTEGER NOT NULL,
+    kind     TEXT NOT NULL,
+    ts       TIMESTAMP NOT NULL,
+    payload  TEXT NOT NULL,
+    PRIMARY KEY (run_id, seq),
+    FOREIGN KEY (run_id) REFERENCES runs(run_id)
+  );
+`);
+console.log("[faro] migrate: ensured runs + run_events tables + index");
+
 const rows = db.prepare("SELECT COUNT(*) as n FROM claim_decisions").get() as { n: number };
 console.log(`[faro] migrate: claim_decisions has ${rows.n} rows`);
 
 const artifactRows = db.prepare("SELECT COUNT(*) as n FROM artifacts").get() as { n: number };
 console.log(`[faro] migrate: artifacts has ${artifactRows.n} rows`);
+
+const runRows = db.prepare("SELECT COUNT(*) as n FROM runs").get() as { n: number };
+console.log(`[faro] migrate: runs has ${runRows.n} rows`);
 
 const tables = db
   .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")

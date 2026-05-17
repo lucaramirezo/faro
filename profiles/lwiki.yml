@@ -10,6 +10,13 @@ owner_logins:
   - lucaramirezol@gmail.com
 status: active
 
+# faro deep-link base, Tailscale-only (port-based, NOT sub-path /faro).
+# Source of truth for the lwiki morning-brief notifier links built by
+# slack_agent/config.py. The FARO_BASE_URL env var (heartbeat/.env via
+# the systemd EnvironmentFile) overrides this when set; this committed
+# value is the fallback so the brief still deep-links on a clean checkout.
+faro_base_url: https://pei.taild21074.ts.net:8443
+
 # Phase 4.5 D2 — per-feature model bindings.
 # Switch the wiki_image provider/model here to swap Imagen 4 → gpt-image-1
 # without code changes. Keys are merged with FALLBACK_PRICING in lib/pricing.ts.

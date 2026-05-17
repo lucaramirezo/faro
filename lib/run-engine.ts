@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { ensureOAuthAuth, getClaudeCodePath, signalToController } from "@/lib/agent-sdk";
+import { ensureOAuthAuth, getClaudeCodePath } from "@/lib/agent-sdk";
 import { getDb } from "@/lib/db";
 import { extractHtml } from "@/lib/extract-html";
 import { getProfile } from "@/lib/profiles";
@@ -293,6 +293,25 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
     });
   };
 
+  // Hard run-timeout watchdog. A stalled/truncated turn (e.g. the model hits
+  // CLAUDE_CODE_MAX_OUTPUT_TOKENS and the stream-json CLI then waits for a
+  // continuation that can never arrive on the closed single-message stdin)
+  // must NEVER pin a run in `running` forever or leak a claude subprocess.
+  // Aborting the SDK AbortController ends the for-await → catch journals a
+  // terminal error → run marked failed and the CLI exits.
+  const incoming = input.signal;
+  const ac = new AbortController();
+  if (incoming) {
+    if (incoming.aborted) ac.abort(incoming.reason);
+    else incoming.addEventListener("abort", () => ac.abort(incoming.reason), { once: true });
+  }
+  const RUN_TIMEOUT_MS = Number.parseInt(process.env.FARO_RUN_TIMEOUT_MS ?? "", 10) || 900_000;
+  let timedOut = false;
+  const watchdog = setTimeout(() => {
+    timedOut = true;
+    ac.abort(new Error(`run exceeded FARO_RUN_TIMEOUT_MS (${RUN_TIMEOUT_MS}ms)`));
+  }, RUN_TIMEOUT_MS);
+
   try {
     ensureOAuthAuth(); // MUST stay inside try (4.5 async-generator lesson).
 
@@ -334,8 +353,12 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
       options: {
         model: RUN_MODEL,
         ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
-        maxTurns: MAX_TURNS,
-        abortController: signalToController(input.signal),
+        // Generation is single-shot tools-off (mirrors 4.5 rerunClaim
+        // maxTurns:1); only agent runs need the raised multi-turn budget.
+        // (A long page also needs CLAUDE_CODE_MAX_OUTPUT_TOKENS raised on the
+        // faro.service env so the turn ends with end_turn, not max_tokens.)
+        maxTurns: input.mode === "generation" ? 1 : MAX_TURNS,
+        abortController: ac,
         pathToClaudeCodeExecutable: getClaudeCodePath(),
         ...(input.resumeSessionId ? { resume: input.resumeSessionId } : {}),
         ...(input.mode === "generation" ? { allowedTools: [] } : {}),
@@ -360,6 +383,33 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
         for (const body of assistantBodies(m.message)) {
           if (input.mode === "generation" && body.kind === "token") genText += body.text;
           yield journalEvent(runId, body);
+        }
+        // A hard assistant error (e.g. `max_output_tokens` — the model's
+        // single-turn output cap) is terminal: after it the stream-json CLI
+        // would otherwise wait forever for a continuation. Recover any partial
+        // HTML, journal a terminal error, and abort so the CLI exits.
+        const aerr = (m as { error?: string }).error;
+        if (aerr) {
+          if (input.mode === "generation" && genText) {
+            try {
+              const p = writeGeneratedHtml(runId, genText);
+              console.log(
+                `[faro] run-engine: wrote PARTIAL artifact ${p} (assistant error ${aerr})`,
+              );
+            } catch {
+              /* partial write best-effort */
+            }
+          }
+          yield journalEvent(runId, {
+            kind: "error",
+            code: aerr,
+            message:
+              aerr === "max_output_tokens"
+                ? "model output hit the per-turn cap — raise CLAUDE_CODE_MAX_OUTPUT_TOKENS on faro.service or shorten the skill brief (partial HTML saved if any)"
+                : `assistant error: ${aerr}`,
+          });
+          ac.abort(new Error(aerr));
+          break;
         }
       } else if (m.type === "user") {
         for (const body of toolResultBodies((m as { message?: unknown }).message)) {
@@ -410,9 +460,16 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
     }
   } catch (err) {
     yield journalEvent(runId, {
+      ...(timedOut ? { code: "timeout" } : {}),
       kind: "error",
-      message: err instanceof Error ? err.message : String(err),
+      message: timedOut
+        ? "run aborted: exceeded FARO_RUN_TIMEOUT_MS with no terminal result — the turn stalled (commonly the model output truncated at CLAUDE_CODE_MAX_OUTPUT_TOKENS)"
+        : err instanceof Error
+          ? err.message
+          : String(err),
     });
+  } finally {
+    clearTimeout(watchdog);
   }
 }
 

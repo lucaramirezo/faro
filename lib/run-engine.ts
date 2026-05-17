@@ -3,7 +3,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { ensureOAuthAuth, getClaudeCodePath, signalToController } from "@/lib/agent-sdk";
 import { getDb } from "@/lib/db";
 import { extractHtml } from "@/lib/extract-html";
@@ -41,6 +41,39 @@ const RUN_MODEL = "claude-sonnet-4-6" as const;
 // Locked: default 16, env-overridable. Exceeding ⇒ SDK result subtype
 // `error_max_turns` ⇒ terminal `error` event (verified, plan NOTES).
 const MAX_TURNS = Number.parseInt(process.env.FARO_RUN_MAX_TURNS ?? "", 10) || 16;
+
+/**
+ * Single-shot prompt as a 1-message async iterable.
+ *
+ * WHY (verified against installed @anthropic-ai/claude-agent-sdk@0.2.140
+ * source): a bare *string* `prompt` makes the SDK write one user message to
+ * the CLI's stdin socket but NEVER call `endInput()` — it only closes stdin
+ * reactively, *after* a first `result` arrives (`isSingleUserTurn` branch,
+ * `sdk.mjs` ~313809). The CLI (always spawned `--input-format stream-json`,
+ * `sdk.mjs` ~299830) waits for stdin EOF / control frames before completing
+ * the turn; with `canUseTool` (agent mode → `--permission-prompt-tool stdio`)
+ * it provably won't emit that first `result` until it gets stdin frames →
+ * circular deadlock (observed live on pei: CLI in ep_poll on the stdin
+ * socket, 0 CPU, no transcript, run stuck forever).
+ *
+ * The async-iterable prompt path routes through `Query.streamInput`, which
+ * calls `transport.endInput()` once the iterable completes (`sdk.mjs`
+ * ~323470) — proactively closing stdin so the turn runs to completion. The
+ * yielded shape matches exactly what the SDK's own string branch builds
+ * (`sdk.mjs` pz@849296). Covers initial AND resume (resolveGate) turns.
+ *
+ * NOTE: agent-sdk.ts:streamChat/rerunClaim carry the same latent SDK quirk
+ * but do NOT deadlock (no canUseTool ⇒ no bidirectional need) and are LOCKED
+ * 4.5 surfaces (Q1: byte-for-byte unchanged) — deliberately NOT modified.
+ */
+async function* singleUserMessage(text: string): AsyncGenerator<SDKUserMessage> {
+  yield {
+    type: "user",
+    session_id: "",
+    parent_tool_use_id: null,
+    message: { role: "user", content: [{ type: "text", text }] },
+  };
+}
 
 export type RunMode = "agent" | "generation";
 
@@ -294,7 +327,10 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
         : undefined;
 
     const q = query({
-      prompt: input.prompt,
+      // 1-message async iterable, NOT a bare string — forces the SDK to
+      // endInput()/close the CLI stdin so a backgrounded run actually starts
+      // (see singleUserMessage doc; fixes the pei stream-json deadlock).
+      prompt: singleUserMessage(input.prompt),
       options: {
         model: RUN_MODEL,
         ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),

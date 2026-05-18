@@ -312,6 +312,47 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
     ac.abort(new Error(`run exceeded FARO_RUN_TIMEOUT_MS (${RUN_TIMEOUT_MS}ms)`));
   }, RUN_TIMEOUT_MS);
 
+  // Generation post-text grace. Generation's deliverable is the streamed
+  // assistant text → extract-html → artifact (plan NOTES: recovered from the
+  // stream, NOT from a clean SDK `result`). Some turns deliver the full HTML
+  // text but never emit a `result` (the stream-json no-result/truncation
+  // quirk). Once we have HTML, if no `result` arrives within FARO_GEN_GRACE_MS
+  // we abort → the catch finalizes the artifact (done, not a 15-min hang).
+  const GEN_GRACE_MS = Number.parseInt(process.env.FARO_GEN_GRACE_MS ?? "", 10) || 45_000;
+  let graceTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // Generation finalizer: the artifact is whatever HTML the model produced,
+  // independent of the SDK result lifecycle. Returns a terminal `done` (with
+  // the artifact written + renderable via /studio/raw) whenever ANY HTML was
+  // captured; only a true `error` if nothing was produced or the write failed.
+  const finalizeGeneration = (reason: string): RunEvent => {
+    if (!genText.trim()) {
+      return journalEvent(runId, {
+        kind: "error",
+        message: `generation produced no HTML (${reason})`,
+      });
+    }
+    try {
+      const p = writeGeneratedHtml(runId, genText);
+      console.log(
+        `[faro] run-engine[${runId}]: generation artifact ${p} (${genText.length} chars; ${reason})`,
+      );
+      return journalEvent(runId, {
+        kind: "done",
+        costUsd: 0,
+        durationMs: Date.now() - started,
+        session_id: sessionId,
+      });
+    } catch (werr) {
+      return journalEvent(runId, {
+        kind: "error",
+        message: `generation produced HTML but artifact write failed: ${
+          werr instanceof Error ? werr.message : String(werr)
+        }`,
+      });
+    }
+  };
+
   try {
     ensureOAuthAuth(); // MUST stay inside try (4.5 async-generator lesson).
 
@@ -394,30 +435,29 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
           if (input.mode === "generation" && body.kind === "token") genText += body.text;
           yield journalEvent(runId, body);
         }
-        // A hard assistant error (e.g. `max_output_tokens` — the model's
-        // single-turn output cap) is terminal: after it the stream-json CLI
-        // would otherwise wait forever for a continuation. Recover any partial
-        // HTML, journal a terminal error, and abort so the CLI exits.
+        // Generation: once HTML has been captured, arm the post-text grace so
+        // a turn that never emits a `result` still finalizes the artifact
+        // promptly instead of waiting for the 15-min watchdog.
+        if (input.mode === "generation" && genText.trim() && graceTimer === undefined) {
+          graceTimer = setTimeout(
+            () => ac.abort(new Error("gen-grace: finalizing artifact from streamed HTML")),
+            GEN_GRACE_MS,
+          );
+        }
+        // A hard assistant error (e.g. `max_output_tokens`) ends the turn.
+        // For generation we still have the HTML the model produced → deliver
+        // it (done). For agent it is a terminal error. Abort so the CLI exits.
         const aerr = (m as { error?: string }).error;
         if (aerr) {
-          if (input.mode === "generation" && genText) {
-            try {
-              const p = writeGeneratedHtml(runId, genText);
-              console.log(
-                `[faro] run-engine: wrote PARTIAL artifact ${p} (assistant error ${aerr})`,
-              );
-            } catch {
-              /* partial write best-effort */
-            }
+          if (input.mode === "generation") {
+            yield finalizeGeneration(`assistant error ${aerr}`);
+          } else {
+            yield journalEvent(runId, {
+              kind: "error",
+              code: aerr,
+              message: `assistant error: ${aerr}`,
+            });
           }
-          yield journalEvent(runId, {
-            kind: "error",
-            code: aerr,
-            message:
-              aerr === "max_output_tokens"
-                ? "model output hit the per-turn cap — raise CLAUDE_CODE_MAX_OUTPUT_TOKENS on faro.service or shorten the skill brief (partial HTML saved if any)"
-                : `assistant error: ${aerr}`,
-          });
           ac.abort(new Error(aerr));
           break;
         }
@@ -436,21 +476,9 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
           if (gatePending) {
             // Run is PAUSED at a gate — no terminal event; resolveGate resumes.
             yield journalEvent(runId, { kind: "status", status: "awaiting_approval" });
+          } else if (input.mode === "generation") {
+            yield finalizeGeneration("clean result");
           } else {
-            if (input.mode === "generation") {
-              try {
-                const p = writeGeneratedHtml(runId, genText);
-                console.log(`[faro] run-engine: wrote generated artifact ${p}`);
-              } catch (werr) {
-                yield journalEvent(runId, {
-                  kind: "error",
-                  message: `generation artifact write failed: ${
-                    werr instanceof Error ? werr.message : String(werr)
-                  }`,
-                });
-                break;
-              }
-            }
             yield journalEvent(runId, {
               kind: "done",
               costUsd: m.total_cost_usd ?? 0,
@@ -469,17 +497,29 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
       }
     }
   } catch (err) {
-    yield journalEvent(runId, {
-      ...(timedOut ? { code: "timeout" } : {}),
-      kind: "error",
-      message: timedOut
-        ? "run aborted: exceeded FARO_RUN_TIMEOUT_MS with no terminal result — the turn stalled (commonly the model output truncated at CLAUDE_CODE_MAX_OUTPUT_TOKENS)"
-        : err instanceof Error
-          ? err.message
-          : String(err),
-    });
+    if (input.mode === "generation" && genText.trim()) {
+      // The model produced HTML but the turn ended without a clean `result`
+      // (truncation / no-result quirk / grace or watchdog abort). The artifact
+      // is the P1 generation deliverable — write + render it regardless.
+      yield finalizeGeneration(
+        timedOut
+          ? "watchdog timeout — recovered from streamed HTML"
+          : "stream ended without result — recovered from streamed HTML",
+      );
+    } else {
+      yield journalEvent(runId, {
+        ...(timedOut ? { code: "timeout" } : {}),
+        kind: "error",
+        message: timedOut
+          ? "run aborted: exceeded FARO_RUN_TIMEOUT_MS with no terminal result"
+          : err instanceof Error
+            ? err.message
+            : String(err),
+      });
+    }
   } finally {
     clearTimeout(watchdog);
+    if (graceTimer) clearTimeout(graceTimer);
   }
 }
 

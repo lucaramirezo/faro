@@ -7,7 +7,7 @@ description: Universal Phase 4 HTML emitter spec for skills that produce reviewa
 
 The faro Artifact Studio (`/studio`) treats every reviewable surface as
 HTML because *the unreasonable effectiveness of HTML* is the foundational
-thesis of Phase 4 (see `the_unreasonable_effectiveness_of_html.md`). Each
+thesis of Phase 4 (see `../../../../raw/articles/2026-05-12-unreasonable-effectiveness-of-html.md`). Each
 new emitter is a NEW human-steering moment. The HTML must let Luca steer —
 not be a styled markdown wall.
 
@@ -186,7 +186,7 @@ verbose form if needed.
 ## 8. Cross-references
 
 - `faro/.claude/skills/artifacts/DESIGN.md` — Phase 4 gate document
-- `the_unreasonable_effectiveness_of_html.md` — foundational thesis
+- `../../../../raw/articles/2026-05-12-unreasonable-effectiveness-of-html.md` — foundational thesis (wiki digest: `wiki/concepts/unreasonable-effectiveness-of-html.md`)
 - `heartbeat/morning_brief.py` + `heartbeat/templates/brief.html.j2` — first running emitter
 - `drafts/artifacts/2026-05-13/dogfood-002/plan.html` — visual reference
 - `faro/scripts/inject-bridge.ts` — bridge injector (idempotent)

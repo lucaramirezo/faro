@@ -17,7 +17,7 @@ Faro is the **persistent HTML control surface** for every autonomous agent in Lu
 1. **Shows what's happening** — sessions, costs, plan-limits, scheduled tasks, integration health.
 2. **Surfaces what needs human input** — dream review, decision approvals, recommender candidates.
 3. **Inventories what the agent owns** — skills, memory, integrations, knowledge sources.
-4. **Renders artifacts** — links to (or embeds) HTML artifacts the agent produces for one-off rich content per [[the_unreasonable_effectiveness_of_html]].
+4. **Renders artifacts** — links to (or embeds) HTML artifacts the agent produces for one-off rich content per [[unreasonable-effectiveness-of-html]].
 5. **Generalizes across agents** — every panel is scoped to the active **profile** (`faro/lwiki`, `faro/refactor-canon`); switcher in the nav.
 6. **Drives agents, not just views them** *(repositioned 2026-05-15, v0.4)* — faro launches, observes, gates (HIL), and hands off Claude Code runs. It is the **Control Station** of an agent OS for a solo operator running many agents. The studio (§6.6) is one surface; the spine is a run engine (§5.7).
 
@@ -326,7 +326,7 @@ CREATE INDEX idx_claim_decisions_status ON claim_decisions(status, profile_id);
 
 ### 5.6 Artifact storage + index *(added 2026-05-13, Phase 4)*
 
-Faro's artifact studio (see §6.6) reads from a single, append-only artifact index that mirrors files on disk. Markdown is the agent ↔ agent format; HTML earns the rendering cost wherever a human has to *steer* (per [the_unreasonable_effectiveness_of_html](../the_unreasonable_effectiveness_of_html.md)).
+Faro's artifact studio (see §6.6) reads from a single, append-only artifact index that mirrors files on disk. Markdown is the agent ↔ agent format; HTML earns the rendering cost wherever a human has to *steer* (per [the_unreasonable_effectiveness_of_html](../raw/articles/2026-05-12-unreasonable-effectiveness-of-html.md)).
 
 **On-disk layout:**
 
@@ -1069,7 +1069,7 @@ Bundled with Track A; ships as one "faro feels finished" release.
 
 **2026-05-13 (iteration #2 — post Phase 2 ship, post 5-subagent research synthesis):**
 
-13. **Phase reorder.** New Phase 4 = Artifact Studio + Polish Pass (was Phase 5). New Phase 5 = Multi-agent + Langfuse (was Phase 4). Rationale: user wants the HTML/studio surface ASAP — markdown is fine for agent ↔ agent context but HTML earns its rendering cost the moment a human has to steer (per [the_unreasonable_effectiveness_of_html](../the_unreasonable_effectiveness_of_html.md)). Multi-agent + Langfuse can wait until canon multi-user demand actually arrives.
+13. **Phase reorder.** New Phase 4 = Artifact Studio + Polish Pass (was Phase 5). New Phase 5 = Multi-agent + Langfuse (was Phase 4). Rationale: user wants the HTML/studio surface ASAP — markdown is fine for agent ↔ agent context but HTML earns its rendering cost the moment a human has to steer (per [the_unreasonable_effectiveness_of_html](../raw/articles/2026-05-12-unreasonable-effectiveness-of-html.md)). Multi-agent + Langfuse can wait until canon multi-user demand actually arrives.
 14. **Studio shape: gallery + provenance + handoff, NOT IDE.** No file tree (faro's user has Claude Code one keystroke away — the cockpit primitive is grouped-by-run reverse-chronological list, per Manus / Replit Agent 4). No in-browser code editor at all (Monaco read-write was rejected first for the second-writer race with Claude Code; then dropped entirely in iteration #3 in favor of Shiki RSC for read-only viewing). The only two-way primitive in v1 is **highlight-to-comment-back-into-prompt** (OpenAI Canvas pattern). Matches Anthropic's [Claude Design handoff-bundle loop](https://www.anthropic.com/news/claude-design-anthropic-labs) (Apr 17 2026). Locked after a 5-subagent research synthesis on 2026-05-13: in-browser editing recommendation reversed in favor of the gallery+handoff shape; user approved the pushback.
 15. **Nav: vertical sidebar (shadcn `sidebar-07`) + 48px top bar with locator pill + ⌘K + Bell + ThemeToggle.** Replaces v0.1 horizontal `TopBar.tsx`. Top-bar locator helper-text dot-separated (`· local Claude daemon` vs `· pei (Tailscale Serve)`). Source of truth for the agent dropdown is `team-switcher.tsx` (shared between sidebar header and locator pill click). References: [Vercel dashboard redesign](https://vercel.com/changelog/dashboard-navigation-redesign-rollout), [Linear UI redesign](https://linear.app/now/how-we-redesigned-the-linear-ui), [Notion sidebar breakdown](https://medium.com/@quickmasum/ui-breakdown-of-notions-sidebar-2121364ec78d).
 16. **Provider chip system via `color-mix(in oklab, var(--brand) 12%, transparent)`.** 9 brands locked with `oklch` CSS vars in `globals.css` `@theme`: anthropic (`#D97757`), gemini (`#078EFA` + `#AD89EB`), supabase (`#3ECF8E`), openai (`#10A37F`), openrouter (`#6E40C9` — unverified, fallback documented), linear (`#5E6AD2`), slack (`#4A154B`), github (`#24292F`), vercel (`oklch(0.20 0 0)`). Linear-style 12% tint with 25% ring; never paint chips in pure brand color.
@@ -1127,7 +1127,7 @@ Bundled with Track A; ships as one "faro feels finished" release.
 ### 15.1 Related documents
 
 - [`lwiki-prd.md`](../lwiki-prd.md) — parent PRD for lwiki system
-- [`the_unreasonable_effectiveness_of_html.md`](../the_unreasonable_effectiveness_of_html.md) — Thariq Shihipar's article; foundational thesis
+- [`the_unreasonable_effectiveness_of_html.md`](../raw/articles/2026-05-12-unreasonable-effectiveness-of-html.md) — Thariq Shihipar's article; foundational thesis · digest [[unreasonable-effectiveness-of-html]]
 - [`CLAUDE.md`](../CLAUDE.md) — vault structure, session protocol
 - [`.claude/commands/create-agent-os-prd.md`](../.claude/commands/create-agent-os-prd.md) — iterator for this PRD
 - [`lwiki_ui/`](../lwiki_ui/) — predecessor package; retires at end of Phase 1

@@ -8,7 +8,7 @@ version: 1.0
 
 This is the *gate* for the Artifact Studio + the 5 HTML emitters that ship with Phase 4. Visual tokens are owned by the `faro-design-guidelines` skill — do not duplicate palette/font/spacing here.
 
-Source of truth: this DESIGN.md is folded from `.agents/plans/faro-phase-4-artifact-studio.md`, the 6 alignment-round answers Luca gave on 2026-05-13, the Anthropic `web-artifacts-builder` skill at SHA `b9e19e6f44773509fbdd7001d77ff41a49a486c1`, and the foundational thesis at `the_unreasonable_effectiveness_of_html.md`.
+Source of truth: this DESIGN.md is folded from `.agents/plans/faro-phase-4-artifact-studio.md`, the 6 alignment-round answers Luca gave on 2026-05-13, the Anthropic `web-artifacts-builder` skill at SHA `b9e19e6f44773509fbdd7001d77ff41a49a486c1`, and the foundational thesis at `../../../../raw/articles/2026-05-12-unreasonable-effectiveness-of-html.md`.
 
 A parallel hand-authored dogfood artifact at `drafts/artifacts/2026-05-13/dogfood-001/plan.html` pressure-tests the assumptions in §2 + §6 + §9 before any emitter code lands. Review both side-by-side.
 

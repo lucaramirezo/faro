@@ -353,13 +353,23 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
       options: {
         model: RUN_MODEL,
         ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
-        // Generation is single-shot tools-off (mirrors 4.5 rerunClaim
-        // maxTurns:1); only agent runs need the raised multi-turn budget.
-        // (A long page also needs CLAUDE_CODE_MAX_OUTPUT_TOKENS raised on the
-        // faro.service env so the turn ends with end_turn, not max_tokens.)
-        maxTurns: input.mode === "generation" ? 1 : MAX_TURNS,
+        // maxTurns = MAX_TURNS for BOTH modes. Empirically the only runs that
+        // got past the SDK↔CLI stream-json startup handshake on pei used
+        // --max-turns 16; introducing --max-turns 1 for generation correlated
+        // with the pre-start ep_poll wedge returning. A long page still
+        // completes in ONE turn because CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+        // (faro.service env) lets it end with end_turn — the raised turn budget
+        // is just unused headroom, not extra turns.
+        maxTurns: MAX_TURNS,
         abortController: ac,
         pathToClaudeCodeExecutable: getClaudeCodePath(),
+        // Capture the spawned CLI's --verbose diagnostics (faro previously
+        // discarded child stderr to /dev/null — that was the missing signal
+        // for every startup-wedge investigation). Goes to journalctl.
+        stderr: (data: string) => {
+          const s = data.toString().trim();
+          if (s) console.error(`[faro] run-engine[${runId}] claude stderr: ${s}`);
+        },
         ...(input.resumeSessionId ? { resume: input.resumeSessionId } : {}),
         ...(input.mode === "generation" ? { allowedTools: [] } : {}),
         ...(canUseTool ? { canUseTool } : {}),

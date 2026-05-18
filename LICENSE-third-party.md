@@ -50,12 +50,30 @@ SOFTWARE.
     skill body → format → user content). The directive text itself is
     re-authored in English (the upstream `SHARED_DESIGN_DIRECTIVES` is Chinese);
     no upstream prose is copied.
-  - `.claude/skills/imported/<skill>/SKILL.md` — the §6.8 acceptance fixture is
+  - `.claude/skills/imported/saas-landing/SKILL.md` — the §6.8 acceptance fixture is
     re-authored in English from the `src/lib/templates/skills/saas-landing`
     brief structure (no verbatim upstream prose); see its `attribution:`
     frontmatter.
+- **Files adapted from this project** (Phase 4.6 skill bulk-import, 2026-05-18):
+  - `.claude/skills/imported/{data-report,dashboard,pricing-page,deck-pitch,invoice,finance-report,pm-spec,eng-runbook,meeting-notes,live-dashboard}/SKILL.md`
+    — ten design briefs re-authored in English from the **structure** of the
+    upstream `next/src/lib/templates/skills/<slug>` briefs (no verbatim upstream
+    prose; upstream bodies are Chinese + CDN-dependent — re-authored to faro's
+    `allow-scripts`-only CSP: charts inline SVG/CSS, no external lib/fetch).
+    Each carries `attribution:` frontmatter (`commit: b799c28`).
+  - `lib/extract-html.test.ts` — kept at parity with (a superset of) the upstream
+    `next/src/lib/__tests__/extract-html.test.ts` regression cases; faro's file
+    pre-existed and additionally guards the rung-5 self-contained modification.
 - **Upstream repository**: https://github.com/nexu-io/html-anything
 - **Upstream commit referenced during the P1 port**: `b699e8a`
+- **Upstream commit referenced during the Phase 4.6 skill bulk-import**:
+  `b799c2851420147914bbd0967ae0ed655643493b` (2026-05-18). The repo restructured
+  to a pnpm workspace since `b699e8a` — skill briefs now live under
+  `next/src/lib/...`. `lib/extract-html.ts` / `lib/generation.ts` remain pinned
+  at `b699e8a` (their upstream logic is unchanged at `b799c28`; not re-vendored).
+- **NOTICE**: no `NOTICE` file exists upstream at either referenced commit, so
+  Apache-2.0 §4(d) imposes no NOTICE-redistribution obligation; the in-file
+  headers + this entry satisfy §4(b)/§4(c).
 - **License**: Apache License, Version 2.0 — https://www.apache.org/licenses/LICENSE-2.0
   Licensed under the Apache License, Version 2.0; you may not use these files
   except in compliance with the License. Files adapted here carry an in-file
@@ -75,3 +93,39 @@ SOFTWARE.
 - **Upstream commit referenced**: `5e518b1c`
 - **License**: MIT. Only the RFC *designs* were adopted; no Python/runtime
   source was copied (the Nous-Hermes agent runtime is explicitly NOT lifted).
+
+## nexu-io/open-design (Apache-2.0)
+
+- **Files adapted from this project** (P2 Studio-as-Surface, 2026-05-18):
+  - `lib/projects-path.ts` — `validateProjectPath`, `isSafeId` (incl. the
+    security-critical pure-dot `/^\.+$/` guard), and `resolveExistingPrefix`
+    ported **verbatim** from `apps/daemon/src/projects.ts`. **Modification:**
+    TypeScript types added over the upstream `@ts-nocheck` JS; `assertUnderReal`
+    is a faro-mapped variant of upstream `resolveSafeReal` — same
+    descendant-symlink defense (realpath + ENOENT→`resolveExistingPrefix`
+    fallback + `rootReal+sep` containment + `EPATHESCAPE`), but the lexical
+    gate is delegated to faro's pre-existing `lib/security.ts:assertUnder`
+    (itself a byte-for-byte port) and realpath is async via
+    `node:fs/promises`.
+  - `lib/quick-switch.ts` — `scoreMatch` (tiers 1000/500/250/100/0), `baseName`,
+    and `nextCursor` ported **verbatim** from
+    `apps/web/src/components/QuickSwitcher.tsx`. **Modification:** `scoreMatch`
+    takes a `name: string` (upstream took a `ProjectFile` whose `.name` was
+    read); `baseName` is exported; the upstream `localStorage` recents store
+    and `baseDir`/`SKIP_DIRS`/`templates`/`tabs` were NOT ported (faro recency
+    = the SQLite `updated_at`/`created_at` columns).
+  - `lib/quick-switch.server.ts` is faro-original (server union over
+    projects/artifacts/runs); it only *imports* the vendored pure functions —
+    no upstream code is copied into it (hence no in-file vendor header).
+- **Upstream repository**: https://github.com/nexu-io/open-design
+- **Upstream commit referenced**: `34f66113a0f2391714d081d848e7dc48a5222de0`
+  (2026-05-18; public, default branch `main`).
+- **NOTICE**: no `NOTICE` file exists upstream at the referenced commit, so
+  Apache-2.0 §4(d) imposes no NOTICE-redistribution obligation; the in-file
+  headers in `lib/projects-path.ts` / `lib/quick-switch.ts` + this entry
+  satisfy §4(b)/§4(c).
+- **License**: Apache License, Version 2.0 — https://www.apache.org/licenses/LICENSE-2.0
+  Licensed under the Apache License, Version 2.0; you may not use these files
+  except in compliance with the License. Files adapted here carry an in-file
+  attribution header and a "Modified" note per Apache-2.0 §4(b)/§4(c). The
+  full license text is available at the URL above.

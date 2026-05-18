@@ -1,3 +1,9 @@
+// Regression guard for lib/extract-html.ts. At parity with (a superset of) the
+// upstream nexu-io/html-anything next/src/lib/__tests__/extract-html.test.ts
+// @b799c28 (Apache-2.0) — the three upstream cases (fenced, chatty full-doc,
+// plain-text scaffold) are all covered below, plus faro's rung-5 self-contained
+// modification (locked Q5) and the partial-stream / fall-through branches.
+
 import { describe, expect, it } from "vitest";
 import { extractHtml, previewHtml } from "@/lib/extract-html";
 
@@ -51,5 +57,21 @@ describe("extract-html — the 5-rung ladder", () => {
   it("previewHtml leaves a complete doc untouched", () => {
     const full = "<!DOCTYPE html><html><body>x</body></html>";
     expect(previewHtml(full)).toBe(full);
+  });
+
+  it("rung 1 (fall-through): a fenced block whose inner is not markup is ignored", () => {
+    // the fence matches but inner does not start with '<' → rung 1 must NOT
+    // return it; it falls through to the rung-5 self-contained scaffold.
+    const out = extractHtml("```html\nnot actually html\n```");
+    expect(out).toMatch(/<!doctype html>/i);
+    expect(out).toContain("not actually html");
+  });
+
+  it("rung 3 (streaming/partial): returns from <html> to end when no close", () => {
+    expect(extractHtml("noise <html><head><title>partial")).toBe("<html><head><title>partial");
+  });
+
+  it("previewHtml on empty input → empty string", () => {
+    expect(previewHtml("")).toBe("");
   });
 });

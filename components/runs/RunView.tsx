@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { type ActiveGate, GatePrompt } from "@/components/runs/GatePrompt";
 
 /**
@@ -221,6 +221,28 @@ export function RunView({
     };
   }, [runId]);
 
+  // On a completed run, resolve the generated artifact and embed it rendered
+  // via the unchanged /studio/raw route (P1: the deliverable is the RENDERED
+  // page, not just the HTML code in the transcript).
+  const [artifactId, setArtifactId] = useState<string | null>(null);
+  useEffect(() => {
+    if (state.terminal !== "done") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/runs/${runId}/artifact`);
+        if (!res.ok) return;
+        const { artifactId: id } = (await res.json()) as { artifactId?: string };
+        if (!cancelled && id) setArtifactId(id);
+      } catch {
+        /* no artifact (agent run / nothing generated) — nothing to embed */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [state.terminal, runId]);
+
   const tools = state.toolOrder.map((id) => state.tools[id]).filter(Boolean);
 
   return (
@@ -278,10 +300,37 @@ export function RunView({
         />
       )}
 
-      {state.transcript && (
-        <div className="whitespace-pre-wrap rounded-md border border-border bg-card p-3 leading-relaxed text-sm">
-          {state.transcript}
+      {artifactId && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-muted-foreground">Rendered artifact</span>
+            <a
+              href={`/studio/raw/${artifactId}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              Open in new tab ↗
+            </a>
+          </div>
+          <iframe
+            title="Generated artifact"
+            src={`/studio/raw/${artifactId}`}
+            sandbox="allow-scripts"
+            className="h-[72vh] w-full rounded-md border border-border bg-white"
+          />
         </div>
+      )}
+
+      {state.transcript && (
+        <details className="rounded-md border border-border bg-card" open={!artifactId}>
+          <summary className="cursor-pointer px-3 py-2 text-xs text-muted-foreground">
+            HTML source ({state.transcript.length.toLocaleString()} chars)
+          </summary>
+          <div className="whitespace-pre-wrap border-border border-t p-3 text-sm leading-relaxed">
+            {state.transcript}
+          </div>
+        </details>
       )}
 
       {state.terminal === "error" && (

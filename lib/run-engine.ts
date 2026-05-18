@@ -167,8 +167,12 @@ function journalEvent(runId: string, body: RunEventBody): RunEvent {
         db.prepare("UPDATE runs SET cost_usd = ? WHERE run_id = ?").run(body.costUsd, runId);
         break;
       case "done":
+        // NULLIF(?,0): a `done` with costUsd 0 (cost unknown — e.g. the
+        // no-result generation finalize) must NOT clobber a real cost the
+        // preceding `usage` event already wrote to the row.
         db.prepare(
-          `UPDATE runs SET status = 'done', ended_at = ?, cost_usd = ?,
+          `UPDATE runs SET status = 'done', ended_at = ?,
+             cost_usd = COALESCE(NULLIF(?, 0), cost_usd),
              session_id = COALESCE(?, session_id) WHERE run_id = ?`,
         ).run(sqlTs, body.costUsd, body.session_id || null, runId);
         break;
@@ -279,6 +283,9 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
   let gatePending = false;
   // Generation mode accumulates assistant text for the extract-html ladder.
   let genText = "";
+  // Real cost captured from the SDK result (if one arrives) so the generation
+  // `done` carries it instead of 0 — keeps the /runs recents column accurate.
+  let lastCostUsd = 0;
 
   const emitStartedOnce = (sid: string): RunEvent | null => {
     if (startedEmitted) return null;
@@ -339,7 +346,7 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
       );
       return journalEvent(runId, {
         kind: "done",
-        costUsd: 0,
+        costUsd: lastCostUsd,
         durationMs: Date.now() - started,
         session_id: sessionId,
       });
@@ -467,6 +474,7 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
         }
       } else if (m.type === "result") {
         if (m.subtype === "success") {
+          lastCostUsd = m.total_cost_usd ?? 0;
           yield journalEvent(runId, {
             kind: "usage",
             costUsd: m.total_cost_usd ?? 0,

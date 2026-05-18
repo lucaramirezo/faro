@@ -188,6 +188,50 @@ db.exec(`
 `);
 console.log("[faro] migrate: ensured runs + run_events tables + index");
 
+// P2 Studio-as-Surface (additive). `projects` is the operator's grouping key;
+// `ui_state` holds the profile-scoped Dockview layout (no profile SQLite table
+// exists — profiles are YAML, lib/profiles.ts). `project_id` is added to
+// runs/artifacts via ensureColumn (those tables may pre-exist on the shared
+// state.db, so it must be an additive ALTER, not inline CREATE). The FK is to
+// `projects` ONLY — never to `pipeline_runs` (independent of the Patch-B dream
+// lifecycle; same discipline as the runs block above). `metadata_json` is
+// reserved JSON for future use — not parsed in P2.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS projects (
+    id             TEXT PRIMARY KEY,
+    profile_id     TEXT NOT NULL DEFAULT 'lwiki',
+    name           TEXT NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'active',
+    pending_prompt TEXT,
+    metadata_json  TEXT,
+    created_at     INTEGER NOT NULL,
+    updated_at     INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_projects_profile_updated
+    ON projects(profile_id, updated_at DESC);
+
+  CREATE TABLE IF NOT EXISTS ui_state (
+    profile_id    TEXT PRIMARY KEY,
+    studio_layout TEXT,
+    updated_at    INTEGER NOT NULL DEFAULT 0
+  );
+`);
+console.log("[faro] migrate: ensured projects + ui_state tables + index");
+
+// SQLite allows ADD COLUMN with a REFERENCES clause only when the column is
+// nullable with no default (sqlite.org/lang_altertable) — project_id is. The
+// ON DELETE CASCADE is honored going forward because foreign_keys = ON above.
+ensureColumn("runs", "project_id", "TEXT REFERENCES projects(id) ON DELETE CASCADE");
+ensureColumn("artifacts", "project_id", "TEXT REFERENCES projects(id) ON DELETE CASCADE");
+db.exec("CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id, created_at DESC)");
+db.exec(
+  "CREATE INDEX IF NOT EXISTS idx_artifacts_project ON artifacts(project_id, created_at DESC)",
+);
+console.log("[faro] migrate: ensured runs.project_id / artifacts.project_id + indexes");
+
+const projectRows = db.prepare("SELECT COUNT(*) as n FROM projects").get() as { n: number };
+console.log(`[faro] migrate: projects has ${projectRows.n} rows`);
+
 const rows = db.prepare("SELECT COUNT(*) as n FROM claim_decisions").get() as { n: number };
 console.log(`[faro] migrate: claim_decisions has ${rows.n} rows`);
 

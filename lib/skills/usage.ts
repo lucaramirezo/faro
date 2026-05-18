@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import Database from "better-sqlite3";
+import { getDb } from "@/lib/db";
 import type { SkillUsage } from "@/lib/skills/types";
 
 let _db: Database.Database | null = null;
@@ -261,17 +262,27 @@ export async function ingestSkillsUsage(opts: GetSkillUsageOptions): Promise<voi
   }
 }
 
-export async function getSkillUsage(opts: GetSkillUsageOptions): Promise<Map<string, SkillUsage>> {
-  await ingestSkillsUsage(opts);
-  const db = getSkillsDb(opts.agentRoot);
+// SUPERSEDED-SOURCE NOTE (Bug-6 fix, 2026-05-18): the upstream JSONL→turns
+// ingest (ingestSkillsUsage / getSkillsDb / ingestFile / extractSkillName,
+// verbatim port) only counts `Skill` tool_use blocks in ~/.claude CLI
+// transcripts — faro's own run engine never emits those, so the Skills-card
+// "runs (7d) / last used" always read 0 / "−". The card must reflect FARO
+// runs, so getSkillUsage now reads faro's `runs` table (run-engine writes
+// `runs.skill_name`). `runs.created_at` is UTC ISO (`…Z`); the
+// `datetime('now','-7 days')` comparison is lexicographically correct for a
+// 7-day window. The upstream ingest apparatus is intentionally retained
+// (still exported + unit-tested) for future ~/.claude correlation — it is
+// just no longer this card's data source.
+export async function getSkillUsage(_opts: GetSkillUsageOptions): Promise<Map<string, SkillUsage>> {
+  const db = getDb();
   const lastUsedRows = db
     .prepare(
-      "SELECT skill_name AS name, MAX(timestamp) AS lastUsed FROM turns WHERE skill_name IS NOT NULL GROUP BY skill_name",
+      "SELECT skill_name AS name, MAX(created_at) AS lastUsed FROM runs WHERE skill_name IS NOT NULL GROUP BY skill_name",
     )
     .all() as Array<{ name: string; lastUsed: string | null }>;
   const runs7dRows = db
     .prepare(
-      "SELECT skill_name AS name, COUNT(*) AS runs FROM turns WHERE skill_name IS NOT NULL AND timestamp >= datetime('now','-7 days') GROUP BY skill_name",
+      "SELECT skill_name AS name, COUNT(*) AS runs FROM runs WHERE skill_name IS NOT NULL AND created_at >= datetime('now','-7 days') GROUP BY skill_name",
     )
     .all() as Array<{ name: string; runs: number }>;
   const usage = new Map<string, SkillUsage>();

@@ -36,8 +36,10 @@ export default async function RunsPage({
     console.error("[faro] runs: skill scan failed", err);
     return [] as Skill[];
   });
+  // Single-user override of P1 Q4 (imported-only): project skills are
+  // generatable too (2026-05-18). Name kept for minimal churn.
   const importedSkills = skills
-    .filter((s) => s.scope === "imported")
+    .filter((s) => s.scope === "imported" || s.scope === "project")
     .map((s) => ({ name: s.name, description: s.description }));
 
   const runs = getDb()

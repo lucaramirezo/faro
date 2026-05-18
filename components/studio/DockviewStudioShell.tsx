@@ -34,6 +34,7 @@ import { Board, type BoardRun } from "@/components/studio/Board";
 import { ArtifactPanel } from "@/components/studio/panels/ArtifactPanel";
 import { GalleryPanel } from "@/components/studio/panels/GalleryPanel";
 import { HomePanel } from "@/components/studio/panels/HomePanel";
+import { ProjectPanel } from "@/components/studio/panels/ProjectPanel";
 import { RunPanel } from "@/components/studio/panels/RunPanel";
 import type { Artifact } from "@/lib/artifacts-types";
 
@@ -50,7 +51,7 @@ export interface ShellProps {
   activeArtifact?: ActiveArtifact | null;
 }
 
-type PanelKind = "home" | "gallery" | "board" | "artifact" | "run";
+type PanelKind = "home" | "gallery" | "board" | "artifact" | "run" | "project";
 
 const PERSIST_DEBOUNCE_MS = 400;
 
@@ -70,6 +71,26 @@ export default function DockviewStudioShell({
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const disposeRef = useRef<(() => void) | null>(null);
 
+  // Layout model (locked 2026-05-18): LEFT group = sticky Home + Gallery
+  // (locked, non-rearrangeable). RIGHT/work group = Board + Run + the single
+  // Artifact panel. Gallery clicks therefore open the artifact in the BIG
+  // right pane, not the narrow Gallery pane (bug #2).
+  const ARTIFACT_PID = "artifact:single";
+
+  // Where a panel of a given kind belongs.
+  const targetFor = useCallback((api: DockviewApi, kind: PanelKind) => {
+    const home = api.getPanel("home:main");
+    if (kind === "gallery") {
+      // Gallery belongs beside Home in the left group.
+      return home ? { referenceGroup: home.api.group } : undefined;
+    }
+    // board / run / artifact / project → the work (right/big) group, anchored
+    // on Board; if Board is gone, open a fresh group right of Home.
+    const board = api.getPanel("board:main");
+    if (board) return { referenceGroup: board.api.group };
+    return home ? { referenceGroup: home.api.group, direction: "right" as const } : undefined;
+  }, []);
+
   const openPanel = useCallback(
     (kind: PanelKind, id: string, params: Record<string, string>, title: string) => {
       const api = apiRef.current;
@@ -85,13 +106,42 @@ export default function DockviewStudioShell({
         component: kind,
         title,
         params,
-        // run + artifact stay mounted across tab switches (SSE / Chat /
-        // highlight-bridge iframe survival). The #1 regression guard.
-        renderer: kind === "run" || kind === "artifact" ? "always" : "onlyWhenVisible",
-        position: api.activeGroup ? { referenceGroup: api.activeGroup } : { direction: "within" },
+        // run stays mounted across tab switches (SSE survival, #1 guard).
+        renderer: kind === "run" ? "always" : "onlyWhenVisible",
+        position: targetFor(api, kind),
       });
     },
-    [],
+    [targetFor],
+  );
+
+  // Single canonical Artifact panel bound to the ROUTE artifact (locked P2
+  // scope refinement — NOT N artifact:<id> panels sharing one prop, which
+  // produced the "no artifact selected" ghost tabs, bug #4). On navigation we
+  // updateParameters() so Dockview re-renders it against the fresh
+  // live.current.activeArtifact; when the route has no artifact we close it.
+  const syncArtifactPanel = useCallback(
+    (api: DockviewApi, routeArtifactId: string | null) => {
+      const a = live.current.activeArtifact;
+      const existing = api.getPanel(ARTIFACT_PID);
+      if (routeArtifactId && a) {
+        if (existing) {
+          existing.api.updateParameters({ artifactId: routeArtifactId });
+          existing.api.setActive();
+        } else {
+          api.addPanel({
+            id: ARTIFACT_PID,
+            component: "artifact",
+            title: a.artifact.label ?? "Artifact",
+            params: { artifactId: routeArtifactId },
+            renderer: "always", // keep Chat/highlight-bridge mounted (#1 guard)
+            position: targetFor(api, "artifact"),
+          });
+        }
+      } else if (existing) {
+        existing.api.close(); // no ghost "no artifact selected" tab
+      }
+    },
+    [targetFor],
   );
 
   const openRun = useCallback(
@@ -100,9 +150,19 @@ export default function DockviewStudioShell({
   );
   const openGallery = useCallback(() => openPanel("gallery", "main", {}, "Gallery"), [openPanel]);
   const openBoard = useCallback(() => openPanel("board", "main", {}, "Board"), [openPanel]);
-  const onCreateProject = useCallback((name: string) => {
-    void createProjectAction(name);
-  }, []);
+  const openProject = useCallback(
+    (id: string, label?: string) => openPanel("project", id, { projectId: id }, label ?? "Project"),
+    [openPanel],
+  );
+  // Create → immediately OPEN the project panel (the operator created it to
+  // use it — bug #3: a created project must be visible, not invisible).
+  const onCreateProject = useCallback(
+    async (name: string) => {
+      const res = await createProjectAction(name);
+      if (res.ok) openProject(res.project.id, res.project.name);
+    },
+    [openProject],
+  );
 
   const components = useMemo(
     () => ({
@@ -110,11 +170,15 @@ export default function DockviewStudioShell({
         <HomePanel
           onOpenGallery={openGallery}
           onOpenBoard={openBoard}
+          onOpenProject={openProject}
           onCreateProject={onCreateProject}
         />
       ),
       gallery: () => <GalleryPanel node={live.current.galleryNode} />,
       board: () => <Board runs={live.current.boardRuns} onOpenRun={openRun} />,
+      project: (props: IDockviewPanelProps<{ projectId: string }>) => (
+        <ProjectPanel projectId={props.params.projectId} onOpenRun={openRun} />
+      ),
       artifact: () => {
         const a = live.current.activeArtifact;
         if (!a) {
@@ -132,7 +196,7 @@ export default function DockviewStudioShell({
         <RunPanel runId={props.params.runId} />
       ),
     }),
-    [openGallery, openBoard, onCreateProject, openRun],
+    [openGallery, openBoard, onCreateProject, openRun, openProject],
   );
 
   const tabComponents = useMemo(
@@ -164,13 +228,17 @@ export default function DockviewStudioShell({
         tabComponent: "homeTab",
         title: "Home",
       });
+      // Gallery tabs INTO Home's group (no position → the just-activated
+      // Home group) → sticky Home + Gallery share the left pane.
+      api.addPanel({ id: "gallery:main", component: "gallery", title: "Gallery" });
+      // Board opens the big work group to the RIGHT; Run + the single
+      // Artifact panel land here too (targetFor → Board's group).
       api.addPanel({
-        id: "gallery:main",
-        component: "gallery",
-        title: "Gallery",
+        id: "board:main",
+        component: "board",
+        title: "Board",
         position: { direction: "right" },
       });
-      api.addPanel({ id: "board:main", component: "board", title: "Board" });
       ensureStickyHome(api);
     },
     [ensureStickyHome],
@@ -198,17 +266,8 @@ export default function DockviewStudioShell({
         ensureStickyHome(api);
       }
 
-      // Bind the single active Artifact panel from the route (P2 scope:
-      // one Artifact panel bound to the route artifactId; switching = nav).
-      const a = live.current.activeArtifact;
-      if (a) {
-        openPanel(
-          "artifact",
-          a.artifact.artifact_id,
-          { artifactId: a.artifact.artifact_id },
-          a.artifact.label ?? "Artifact",
-        );
-      }
+      // Bind the single Artifact panel from the route (locked P2 scope).
+      syncArtifactPanel(api, live.current.activeArtifact?.artifact.artifact_id ?? null);
 
       const disposable = api.onDidLayoutChange(() => {
         if (persistTimer.current) clearTimeout(persistTimer.current);
@@ -222,8 +281,29 @@ export default function DockviewStudioShell({
       });
       disposeRef.current = () => disposable.dispose();
     },
-    [initialLayout, buildDefaultLayout, ensureStickyHome, openPanel],
+    [initialLayout, buildDefaultLayout, ensureStickyHome, syncArtifactPanel],
   );
+
+  // Re-bind the single Artifact panel whenever the route artifact changes
+  // (navigation re-renders the shell with a new activeArtifact). The id is
+  // the trigger AND the value used; the rich RSC nodes ride live.current.
+  const routeArtifactId = activeArtifact?.artifact.artifact_id ?? null;
+  useEffect(() => {
+    const api = apiRef.current;
+    if (api) syncArtifactPanel(api, routeArtifactId);
+  }, [routeArtifactId, syncArtifactPanel]);
+
+  // ⌘P (QuickSwitcher) dispatches faro:open-project for a project hit — the
+  // shell owns the Dockview api, so it opens the Project panel here (bug #3:
+  // project-click was a silent router.push no-op).
+  useEffect(() => {
+    const onOpenProjectEvt = (e: Event) => {
+      const d = (e as CustomEvent<{ id?: string; label?: string }>).detail;
+      if (d?.id) openProject(d.id, d.label);
+    };
+    window.addEventListener("faro:open-project", onOpenProjectEvt);
+    return () => window.removeEventListener("faro:open-project", onOpenProjectEvt);
+  }, [openProject]);
 
   useEffect(() => {
     return () => {

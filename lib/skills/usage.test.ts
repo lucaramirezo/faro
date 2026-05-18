@@ -1,10 +1,37 @@
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
+import { afterAll, describe, expect, it, vi } from "vitest";
+
+// Throwaway state.db — the real shared slack_agent state.db is never touched.
+const { TMP } = vi.hoisted(() => {
+  const { mkdtempSync: mk } = require("node:fs");
+  const { tmpdir: td } = require("node:os");
+  const { join: j } = require("node:path");
+  return { TMP: mk(j(td(), "faro-usage-")) };
+});
+
+vi.mock("@/lib/profiles", () => ({
+  getProfile: () => ({
+    profile: "test",
+    display_name: "test",
+    agent_root: TMP,
+    memory_dir: "memory",
+    state_db: "state.db",
+    jsonl_root: "jsonl",
+    heartbeat_path: "hb",
+    owner_logins: [],
+    status: "active",
+  }),
+  resolveStateDbPath: () => join(TMP, "state.db"),
+  resolveJsonlRoot: () => join(TMP, "jsonl"),
+}));
+
+import { getDb } from "@/lib/db";
 import { extractSkillName, getSkillUsage } from "@/lib/skills/usage";
 
-describe("extractSkillName", () => {
+afterAll(() => rmSync(TMP, { recursive: true, force: true }));
+
+describe("extractSkillName (upstream port — unchanged)", () => {
   it("returns the skill slug for a Skill tool_use block", () => {
     const content = [{ type: "tool_use", name: "Skill", input: { skill: "ingest" } }];
     expect(extractSkillName(content)).toBe("ingest");
@@ -23,39 +50,35 @@ describe("extractSkillName", () => {
   });
 });
 
-describe("getSkillUsage incremental ingest", () => {
-  let tmpAgentRoot: string;
-  let jsonlRoot: string;
+describe("getSkillUsage (Bug-6 fix — sourced from faro runs)", () => {
+  function seedRun(skill: string | null, agoMs: number) {
+    getDb()
+      .prepare(
+        "INSERT INTO runs (run_id, profile_id, status, skill_name, created_at, journal_path) VALUES (?, 'test', 'done', ?, ?, ?)",
+      )
+      .run(
+        `run_${Math.random().toString(36).slice(2)}`,
+        skill,
+        new Date(Date.now() - agoMs).toISOString(),
+        "/tmp/j",
+      );
+  }
 
-  beforeEach(async () => {
-    tmpAgentRoot = await fs.mkdtemp(path.join(os.tmpdir(), "faro-skills-usage-"));
-    jsonlRoot = path.join(tmpAgentRoot, "claude-projects");
-    const sessionDir = path.join(jsonlRoot, "test-session");
-    await fs.mkdir(sessionDir, { recursive: true });
-    const fixturePath = path.resolve(
-      __dirname,
-      "..",
-      "..",
-      "test",
-      "fixtures",
-      "jsonl",
-      "sample-with-skill.jsonl",
-    );
-    const raw = await fs.readFile(fixturePath, "utf8");
-    await fs.writeFile(path.join(sessionDir, "session.jsonl"), raw, "utf8");
-  });
+  it("counts only the last 7d but reports lastUsed from all runs; ignores NULL skill", async () => {
+    seedRun("ingest", 60_000); // recent
+    seedRun("ingest", 2 * 86_400_000); // 2d ago — within 7d
+    seedRun("ingest", 9 * 86_400_000); // 9d ago — outside 7d
+    seedRun("wiki-query", 9 * 86_400_000); // only an old run
+    seedRun(null, 60_000); // untagged — must be excluded
 
-  afterEach(async () => {
-    await fs.rm(tmpAgentRoot, { recursive: true, force: true });
-  });
+    const usage = await getSkillUsage({ agentRoot: TMP, jsonlRoot: join(TMP, "jsonl") });
 
-  it("captures the Skill invocation and is idempotent across re-ingest", async () => {
-    const first = await getSkillUsage({ agentRoot: tmpAgentRoot, jsonlRoot });
-    expect(first.has("ingest")).toBe(true);
-    const ingest = first.get("ingest");
-    expect(ingest?.lastUsed).toBeTruthy();
-
-    const second = await getSkillUsage({ agentRoot: tmpAgentRoot, jsonlRoot });
-    expect(second.get("ingest")?.runs7d).toBe(first.get("ingest")?.runs7d);
+    expect(usage.get("ingest")?.runs7d).toBe(2);
+    expect(usage.get("ingest")?.lastUsed).toBeTruthy();
+    // A skill with only an >7d run still surfaces (lastUsed set, runs7d 0).
+    expect(usage.get("wiki-query")?.runs7d).toBe(0);
+    expect(usage.get("wiki-query")?.lastUsed).toBeTruthy();
+    // NULL skill_name never produces an entry.
+    expect([...usage.keys()].some((k) => k === "" || k == null)).toBe(false);
   });
 });

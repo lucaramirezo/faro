@@ -49,9 +49,13 @@ export async function POST(req: Request): Promise<Response> {
       return new Response("content required for generation", { status: 400 });
     }
     const skills = await scanSkills({ agentRoot: getProfile().agent_root });
-    const skill = skills.find((s) => s.name === skillName && s.scope === "imported");
+    // Single-user override of P1 Q4 (imported-only): accept project scope too
+    // (loadSkillBody/scanSkills are scope-agnostic). 2026-05-18.
+    const skill = skills.find(
+      (s) => s.name === skillName && (s.scope === "imported" || s.scope === "project"),
+    );
     if (!skill) {
-      return new Response(`imported skill not found: ${skillName}`, { status: 404 });
+      return new Response(`generatable skill not found: ${skillName}`, { status: 404 });
     }
     let skillBody: string;
     try {

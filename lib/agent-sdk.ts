@@ -2,6 +2,11 @@ import "server-only";
 
 import { readFileSync } from "node:fs";
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { CHAT_ALLOWED_TOOLS, CHAT_DISALLOWED_TOOLS } from "@/lib/tool-policy";
+
+// Studio Chat turn budget (single-user override of the 4.5 maxTurns:1 freeze
+// — a tool-use turn must be followed by the answer turn). Env-overridable.
+const CHAT_MAX_TURNS = Number(process.env.FARO_CHAT_MAX_TURNS) || 8;
 
 /**
  * Claude Agent SDK wrapper — the ONLY entry point for Anthropic model calls
@@ -272,8 +277,15 @@ export async function* streamChat(input: StreamChatInput): AsyncGenerator<ChatSS
       options: {
         model: SONNET_MODEL,
         systemPrompt: input.systemPrompt,
-        maxTurns: 1,
-        allowedTools: [],
+        // Single-user override (P1 Q1, see lib/tool-policy.ts): the studio
+        // Chat is a READ-ONLY assistant. A safe read/search allowlist +
+        // disallowing all mutation/exec lets it inspect files without the
+        // interactive permission dead-end; maxTurns raised from 1 so a
+        // tool-use turn can be followed by the answer turn.
+        maxTurns: CHAT_MAX_TURNS,
+        allowedTools: CHAT_ALLOWED_TOOLS,
+        disallowedTools: CHAT_DISALLOWED_TOOLS,
+        permissionMode: "default",
         abortController: signalToController(input.signal),
         pathToClaudeCodeExecutable: getClaudeCodePath(),
       },

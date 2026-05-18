@@ -80,9 +80,19 @@ export function QuickSwitcher() {
 
   function onPick(t: SwitchTarget) {
     setOpen(false);
-    if (t.type === "artifact") router.push(`/studio/${t.id}`);
-    else if (t.type === "run") router.push(`/runs/${t.id}`);
-    else router.push("/studio"); // project → the workspace (no project route in P2)
+    if (t.type === "artifact") {
+      router.push(`/studio/${t.id}`); // rebinds the single Artifact panel
+    } else if (t.type === "run") {
+      router.push(`/runs/${t.id}`);
+    } else {
+      // project → tell the studio shell to open a Project panel (bug #3:
+      // this was a silent router.push("/studio") no-op). If we're not on
+      // /studio yet, navigate there first so the shell is mounted to hear it.
+      window.dispatchEvent(
+        new CustomEvent("faro:open-project", { detail: { id: t.id, label: t.label } }),
+      );
+      if (!window.location.pathname.startsWith("/studio")) router.push("/studio");
+    }
   }
 
   return (

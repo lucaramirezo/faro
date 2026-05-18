@@ -129,25 +129,25 @@ describe("run-engine — streamRun", () => {
     expect(err?.terminal).toBe(true);
   });
 
-  it("tool_use → default-deny canUseTool → approval event + awaiting_approval, no terminal", async () => {
-    let perm: unknown;
+  it("agent mode is PERMISSIVE (single-user override): safe tools allowed, destructive shell denied, NO gate", async () => {
+    const perms: Array<{ behavior: string; message?: string }> = [];
     mockQuery.mockImplementation((args: { options: Record<string, unknown> }) => {
       const opts = args.options;
       return (async function* () {
         yield {
           type: "assistant",
           session_id: "sess-G",
-          message: { content: [{ type: "text", text: "I need a tool" }] },
+          message: { content: [{ type: "text", text: "using tools" }] },
         };
         const cut = opts.canUseTool as
-          | ((t: string, i: unknown, o: unknown) => Promise<unknown>)
+          | ((t: string, i: unknown, o: unknown) => Promise<{ behavior: string; message?: string }>)
           | undefined;
         if (cut) {
-          perm = await cut(
-            "Bash",
-            { command: "ls" },
-            { toolUseID: "tu1", signal: new AbortController().signal },
-          );
+          const o = { toolUseID: "t", signal: new AbortController().signal };
+          perms.push(await cut("Bash", { command: "ls -la" }, o));
+          perms.push(await cut("Bash", { command: "rm -rf /" }, o));
+          perms.push(await cut("Read", { file_path: "/x" }, o));
+          perms.push(await cut("Write", { file_path: "/x", content: "y" }, o));
         }
         yield {
           type: "result",
@@ -160,26 +160,24 @@ describe("run-engine — streamRun", () => {
     });
 
     const events = await drain(streamRun({ mode: "agent", runId: "run_903_ddd333", prompt: "x" }));
-    expect((perm as { behavior: string }).behavior).toBe("deny");
-    // The approval is journaled out-of-band by canUseTool (Q2: engine is the
-    // single writer; the SSE route delivers it via the journal tail, NOT a
-    // generator yield). Assert against the journal — the real contract.
+    // ls/Read/Write allowed; only the destructive `rm -rf /` denied.
+    expect(perms.map((p) => p.behavior)).toEqual(["allow", "deny", "allow", "allow"]);
+    expect(perms[1].message).toMatch(/destructive|safety/i);
+    // No HIL gate under the permissive policy: nothing journaled as
+    // approval, no awaiting_approval, the run reaches a terminal done.
     const journal = readJournalAfter("run_903_ddd333", -1);
-    const appr = journal.find((e) => e.kind === "approval");
-    expect(appr && "tool" in appr && appr.tool).toBe("Bash");
-    expect(events.some((e) => e.terminal)).toBe(false);
+    expect(journal.some((e) => e.kind === "approval")).toBe(false);
     expect(
       events.some((e) => e.kind === "status" && "status" in e && e.status === "awaiting_approval"),
-    ).toBe(true);
-
+    ).toBe(false);
+    expect(events.some((e) => e.terminal)).toBe(true);
     const row = getDb()
-      .prepare("SELECT status, session_id FROM runs WHERE run_id = ?")
-      .get("run_903_ddd333") as { status: string; session_id: string };
-    expect(row.status).toBe("awaiting_approval");
-    expect(row.session_id).toBe("sess-G");
+      .prepare("SELECT status FROM runs WHERE run_id = ?")
+      .get("run_903_ddd333") as { status: string };
+    expect(row.status).toBe("done");
   });
 
-  it("resolveGate(allow) resumes the SDK session (Options.resume) and continues seq", async () => {
+  it("resolveGate (dormant machinery, kept) still resumes the SDK session (Options.resume) and continues seq", async () => {
     const RID = "run_904_eee444";
     mockQuery.mockImplementation((args: { options: Record<string, unknown> }) => {
       if (args.options.resume) {
@@ -198,59 +196,48 @@ describe("run-engine — streamRun", () => {
           },
         ]);
       }
-      return (async function* () {
-        yield {
+      return asAsync([
+        {
           type: "assistant",
           session_id: "sess-G",
-          message: { content: [{ type: "text", text: "need tool" }] },
-        };
-        const cut = args.options.canUseTool as
-          | ((t: string, i: unknown, o: unknown) => Promise<unknown>)
-          | undefined;
-        if (cut) {
-          await cut(
-            "Bash",
-            { command: "ls" },
-            { toolUseID: "tu1", signal: new AbortController().signal },
-          );
-        }
-        yield {
+          message: { content: [{ type: "text", text: "first turn done" }] },
+        },
+        {
           type: "result",
           subtype: "success",
           total_cost_usd: 0,
           duration_ms: 1,
           usage: { input_tokens: 1, output_tokens: 1 },
-        };
-      })();
+        },
+      ]);
     });
 
+    // First turn completes normally (permissive policy → no gate); session
+    // 'sess-G' is recorded on the runs row.
     await drain(streamRun({ mode: "agent", runId: RID, prompt: "x" }));
-    const appr = readJournalAfter(RID, -1).find((e) => e.kind === "approval") as
-      | (RunEvent & { gateId: string })
-      | undefined;
-    expect(appr).toBeTruthy();
     const db = getDb();
-    const before = (
-      db.prepare("SELECT last_seq FROM runs WHERE run_id = ?").get(RID) as { last_seq: number }
-    ).last_seq;
-
-    const { resumed } = resolveGate({
-      runId: RID,
-      gateId: (appr as { gateId: string }).gateId,
-      decision: "allow",
-    });
-    expect(resumed).toBe(true);
-
     await waitFor(
       () =>
         (db.prepare("SELECT status FROM runs WHERE run_id = ?").get(RID) as { status: string })
           .status === "done",
     );
+    const before = (
+      db.prepare("SELECT last_seq FROM runs WHERE run_id = ?").get(RID) as { last_seq: number }
+    ).last_seq;
 
-    const resumedCall = mockQuery.mock.calls.find(
-      (c) => (c[0] as { options?: { resume?: string } })?.options?.resume === "sess-G",
+    // resolveGate is no longer auto-triggered (gate is dormant under the
+    // single-user permissive policy) but is KEPT as a functional resume
+    // primitive — drive it directly and assert the resume contract holds.
+    const { resumed } = resolveGate({ runId: RID, gateId: "g-manual", decision: "allow" });
+    expect(resumed).toBe(true);
+
+    await waitFor(() =>
+      Boolean(
+        mockQuery.mock.calls.find(
+          (c) => (c[0] as { options?: { resume?: string } })?.options?.resume === "sess-G",
+        ),
+      ),
     );
-    expect(resumedCall).toBeTruthy();
     const after = (
       db.prepare("SELECT last_seq FROM runs WHERE run_id = ?").get(RID) as { last_seq: number }
     ).last_seq;

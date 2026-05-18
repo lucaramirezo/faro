@@ -1,6 +1,5 @@
 import "server-only";
 
-import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -10,6 +9,7 @@ import { extractHtml } from "@/lib/extract-html";
 import { getProfile } from "@/lib/profiles";
 import { isTerminalKind, mkRunId, type RunEvent, type RunEventBody } from "@/lib/run-events";
 import { appendEvent, journalPath, readJournalAfter } from "@/lib/run-journal";
+import { agentToolDecision, type ToolDecision } from "@/lib/tool-policy";
 
 /**
  * P1 Control Station run engine. Built strictly ON TOP OF the Phase 4.5
@@ -196,10 +196,6 @@ function journalEvent(runId: string, body: RunEventBody): RunEvent {
   return ev;
 }
 
-function mkGateId(): string {
-  return `gate_${Date.now()}_${randomBytes(3).toString("hex")}`;
-}
-
 /** Local-TZ YYYY-MM-DD (EMITTER-GUIDE §1 path layout uses local date). */
 function localDate(d = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
@@ -280,7 +276,7 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
   // A resumed (gate-continuation) turn must NOT re-emit run_started — seq 0
   // already carries the real session_id; this is a continuation, not a start.
   let startedEmitted = Boolean(input.resumeSessionId);
-  let gatePending = false;
+  const gatePending = false;
   // Generation mode accumulates assistant text for the extract-html ladder.
   let genText = "";
   // Real cost captured from the SDK result (if one arrives) so the generation
@@ -366,30 +362,25 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
     // Agent mode → default-deny gate (Q3/N1). Generation mode → tools OFF,
     // no canUseTool, HTML recovered from streamed text (documented v1
     // simplification). canUseTool is the installed 3-arg signature.
+    // Single-user override (P1 Q3/N1 — see lib/tool-policy.ts): agent mode is
+    // now PERMISSIVE — every tool is allowed except a destructive shell
+    // command, which is hard-DENIED (not gated). `gatePending` is never set,
+    // so the HIL approval/resume path stays dormant. The deny is WITHOUT
+    // `interrupt` ⇒ only that tool call is refused; the turn ends naturally.
     const canUseTool =
       input.mode === "agent"
         ? async (
             toolName: string,
             toolInput: Record<string, unknown>,
             _opts: { toolUseID: string; signal: AbortSignal },
-          ): Promise<
-            | { behavior: "allow"; updatedInput: Record<string, unknown> }
-            | { behavior: "deny"; message: string }
-          > => {
-            gatePending = true;
-            journalEvent(runId, {
-              kind: "approval",
-              gateId: mkGateId(),
-              tool: toolName,
-              args: toolInput,
-            });
-            // Deny WITHOUT `interrupt` ⇒ only this tool is cancelled; the turn
-            // ends naturally, process untouched (SDK 0.2.140, plan NOTES).
-            return {
-              behavior: "deny",
-              message:
-                "Awaiting operator approval in faro; the run will resume after the operator answers.",
-            };
+          ): Promise<ToolDecision> => {
+            const decision = agentToolDecision(toolName, toolInput);
+            if (decision.behavior === "deny") {
+              console.warn(
+                `[faro] run-engine[${runId}] blocked destructive ${toolName}: ${JSON.stringify(toolInput).slice(0, 200)}`,
+              );
+            }
+            return decision;
           }
         : undefined;
 

@@ -70,7 +70,9 @@ export function SkillCard({ skill, usage }: SkillCardProps) {
           <span className="tabular-nums">{relativeFromNow(usage?.lastUsed ?? null)}</span>
         </li>
       </ul>
-      {skill.scope === "imported" && (
+      {/* P1 Q4 was imported-only; single-user override (2026-05-18) — project
+          skills are generatable too (parser/loadSkillBody are scope-agnostic). */}
+      {(skill.scope === "imported" || skill.scope === "project") && (
         <Link
           href={`/runs?new=generation&skill=${encodeURIComponent(skill.name)}`}
           className="inline-flex items-center justify-center rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"

@@ -85,14 +85,37 @@ SOFTWARE.
 - **Designs adopted (no source code copied)** (P1 Control Station, 2026-05-15):
   - `lib/run-events.ts` — the run-adapter envelope field set (monotonic `seq`,
     `run_id`, single `terminal` envelope) follows
-    `docs/rfcs/hermes-run-adapter-contract.md`.
+    `docs/rfcs/hermes-run-adapter-contract.md`. (Upstream pin `5e518b1c`.)
   - `lib/run-journal.ts` — the append-only turn-journal + fsync-before-gate
     durability boundary + `?after_seq=` replay semantics follow
-    `docs/rfcs/turn-journal.md`.
+    `docs/rfcs/turn-journal.md`. (Upstream pin `5e518b1c`.)
+- **Designs adopted (no source code copied)** (P3 HIL gate unification,
+  2026-05-19):
+  - `lib/gate-inbox.ts` — the `GateResult` resolution envelope
+    (`accepted: boolean`, `status: "accepted" | "not-active" | "unsupported"`,
+    optional human `message`) follows the `ControlResult` dataclass in
+    `api/runtime_adapter.py` and the resolution-status contract in
+    `docs/rfcs/hermes-run-adapter-contract.md`. faro narrows the status set to
+    exactly the control-resolution subset and mirrors hermes' `safe_message`
+    convention (set only when NOT accepted).
+  - `lib/run-engine.ts` (approved-set replay) — the per-session
+    approval-allowlist *pattern* (an approved tool-call key is not re-prompted)
+    **observed in hermes-webui's `api/routes.py` `approve_session(sid, key)`
+    consumption layer**. faro **diverges deliberately**: the allowlist is
+    rebuilt from the append-only run journal (P1 Q2 source-of-truth invariant)
+    rather than held in-memory per session, so it survives SDK-resume re-entry
+    and a service restart between gate and answer.
 - **Upstream repository**: https://github.com/nesquena/hermes-webui
-- **Upstream commit referenced**: `5e518b1c`
-- **License**: MIT. Only the RFC *designs* were adopted; no Python/runtime
-  source was copied (the Nous-Hermes agent runtime is explicitly NOT lifted).
+- **Upstream commits referenced**: P1 envelope/turn-journal lift @ `5e518b1c`;
+  P3 `GateResult`/approved-set design lift @
+  `71c70352c113c57bef959b751e276c38b2c6caf1` (branch `master`). The earlier P1
+  lift is unchanged and NOT re-vendored.
+- **License**: MIT, `Copyright (c) 2025 Hermes Web UI Contributors`. Only the
+  RFC/design *patterns* were adopted; no Python/runtime source was copied. The
+  external Nous-Hermes agent runtime — including the `tools.approval` module
+  that actually implements `approve_session` (the webui only *consumes* it via
+  an optional `try/except ImportError` import) — is explicitly NOT vendored or
+  lifted; P3 reuses only the observable design pattern.
 
 ## nexu-io/open-design (Apache-2.0)
 

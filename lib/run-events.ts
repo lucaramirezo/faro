@@ -89,3 +89,11 @@ export function formatRunSSE(ev: RunEvent): string {
 export function mkRunId(): string {
   return `run_${Date.now()}_${randomBytes(3).toString("hex")}`;
 }
+
+/** Gate id: same time-sortable prefix + 3 random bytes as mkRunId (symmetry).
+ *  Minted by the run-engine canUseTool callback when a tool decision gates
+ *  (P3 selective re-arm). Stamped into the journal `approval`/`gate_resolved`
+ *  events; unique enough for a single-operator station. */
+export function mkGateId(): string {
+  return `gate_${Date.now()}_${randomBytes(3).toString("hex")}`;
+}

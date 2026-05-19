@@ -129,7 +129,14 @@ describe("run-engine — streamRun", () => {
     expect(err?.terminal).toBe(true);
   });
 
-  it("agent mode is PERMISSIVE (single-user override): safe tools allowed, destructive shell denied, NO gate", async () => {
+  // P3 (decision 35): the gate is LIVE again, SELECTIVELY. P2.1's permissive
+  // contract test is reconciled here to the P3 selective contract — read/search
+  // allow, destructive shell hard-deny, mutating writer GATES (deny-without-
+  // interrupt + journaled approval + run paused at awaiting_approval, NOT done).
+  type Cut = (t: string, i: unknown, o: unknown) => Promise<{ behavior: string; message?: string }>;
+  const cutOpts = () => ({ toolUseID: "t", signal: new AbortController().signal });
+
+  it("agent mode SELECTIVELY gates (P3): read allow, destructive deny, mutating writer gates → paused at awaiting_approval", async () => {
     const perms: Array<{ behavior: string; message?: string }> = [];
     mockQuery.mockImplementation((args: { options: Record<string, unknown> }) => {
       const opts = args.options;
@@ -139,15 +146,12 @@ describe("run-engine — streamRun", () => {
           session_id: "sess-G",
           message: { content: [{ type: "text", text: "using tools" }] },
         };
-        const cut = opts.canUseTool as
-          | ((t: string, i: unknown, o: unknown) => Promise<{ behavior: string; message?: string }>)
-          | undefined;
+        const cut = opts.canUseTool as Cut | undefined;
         if (cut) {
-          const o = { toolUseID: "t", signal: new AbortController().signal };
-          perms.push(await cut("Bash", { command: "ls -la" }, o));
-          perms.push(await cut("Bash", { command: "rm -rf /" }, o));
-          perms.push(await cut("Read", { file_path: "/x" }, o));
-          perms.push(await cut("Write", { file_path: "/x", content: "y" }, o));
+          perms.push(await cut("Bash", { command: "ls -la" }, cutOpts()));
+          perms.push(await cut("Bash", { command: "rm -rf /" }, cutOpts()));
+          perms.push(await cut("Read", { file_path: "/x" }, cutOpts()));
+          perms.push(await cut("Write", { file_path: "/x", content: "y" }, cutOpts()));
         }
         yield {
           type: "result",
@@ -160,21 +164,119 @@ describe("run-engine — streamRun", () => {
     });
 
     const events = await drain(streamRun({ mode: "agent", runId: "run_903_ddd333", prompt: "x" }));
-    // ls/Read/Write allowed; only the destructive `rm -rf /` denied.
-    expect(perms.map((p) => p.behavior)).toEqual(["allow", "deny", "allow", "allow"]);
+    // ls allowed; rm -rf / hard-denied (destructive); Read allowed; Write GATED
+    // (the callback converts the gate decision → deny-without-interrupt).
+    expect(perms.map((p) => p.behavior)).toEqual(["allow", "deny", "allow", "deny"]);
     expect(perms[1].message).toMatch(/destructive|safety/i);
-    // No HIL gate under the permissive policy: nothing journaled as
-    // approval, no awaiting_approval, the run reaches a terminal done.
+    expect(perms[3].message).toMatch(/gated|approval/i);
+    // The gate IS live: an approval was journaled for the Write, the run is
+    // paused at awaiting_approval and did NOT finalize as done.
     const journal = readJournalAfter("run_903_ddd333", -1);
-    expect(journal.some((e) => e.kind === "approval")).toBe(false);
+    const appr = journal.find((e) => e.kind === "approval");
+    expect(appr && "tool" in appr && appr.tool).toBe("Write");
     expect(
-      events.some((e) => e.kind === "status" && "status" in e && e.status === "awaiting_approval"),
-    ).toBe(false);
-    expect(events.some((e) => e.terminal)).toBe(true);
+      journal.some((e) => e.kind === "status" && "status" in e && e.status === "awaiting_approval"),
+    ).toBe(true);
+    expect(events.some((e) => e.terminal)).toBe(false);
     const row = getDb()
       .prepare("SELECT status FROM runs WHERE run_id = ?")
       .get("run_903_ddd333") as { status: string };
-    expect(row.status).toBe("done");
+    expect(row.status).toBe("awaiting_approval");
+  });
+
+  it("approved-set replay: gate → resolve(approve) → the SAME tool re-attempt is auto-allowed (no re-gate), run completes", async () => {
+    const RID = "run_906_ggg666";
+    let resumeDecision: { behavior: string } | undefined;
+    mockQuery.mockImplementation((args: { options: Record<string, unknown> }) => {
+      const opts = args.options;
+      const isResume = Boolean(opts.resume);
+      return (async function* () {
+        yield {
+          type: "assistant",
+          session_id: isResume ? (opts.resume as string) : "sess-RP",
+          message: { content: [{ type: "text", text: isResume ? "resumed" : "first" }] },
+        };
+        const cut = opts.canUseTool as Cut | undefined;
+        if (cut) {
+          // The SDK re-attempts the SAME gated tool call on resume.
+          const r = await cut("Write", { file_path: "/a", content: "b" }, cutOpts());
+          if (isResume) resumeDecision = r;
+        }
+        yield {
+          type: "result",
+          subtype: "success",
+          total_cost_usd: 0,
+          duration_ms: 1,
+          usage: { input_tokens: 1, output_tokens: 1 },
+        };
+      })();
+    });
+
+    await drain(streamRun({ mode: "agent", runId: RID, prompt: "x" }));
+    const db = getDb();
+    const appr = readJournalAfter(RID, -1).find((e) => e.kind === "approval");
+    expect(appr).toBeTruthy();
+    const gateId = (appr as { gateId: string }).gateId;
+    expect(
+      (db.prepare("SELECT status FROM runs WHERE run_id = ?").get(RID) as { status: string })
+        .status,
+    ).toBe("awaiting_approval");
+
+    const { resumed } = resolveGate({ runId: RID, gateId, decision: "allow" });
+    expect(resumed).toBe(true);
+
+    await waitFor(
+      () =>
+        (db.prepare("SELECT status FROM runs WHERE run_id = ?").get(RID) as { status: string })
+          .status === "done",
+    );
+    // THE critical Task 5 assertion: the re-attempted Write was auto-allowed
+    // from the journal-rebuilt approved-set — NOT re-gated (no infinite loop).
+    expect(resumeDecision?.behavior).toBe("allow");
+  });
+
+  it("gate → resolve(deny) → terminal cancel, SDK never resumed", async () => {
+    const RID = "run_907_hhh777";
+    mockQuery.mockImplementation((args: { options: Record<string, unknown> }) => {
+      const opts = args.options;
+      return (async function* () {
+        yield {
+          type: "assistant",
+          session_id: "sess-DN",
+          message: { content: [{ type: "text", text: "t" }] },
+        };
+        const cut = opts.canUseTool as Cut | undefined;
+        if (cut) await cut("Edit", { file_path: "/z" }, cutOpts());
+        yield {
+          type: "result",
+          subtype: "success",
+          total_cost_usd: 0,
+          duration_ms: 1,
+          usage: { input_tokens: 1, output_tokens: 1 },
+        };
+      })();
+    });
+
+    await drain(streamRun({ mode: "agent", runId: RID, prompt: "x" }));
+    const gateId = (
+      readJournalAfter(RID, -1).find((e) => e.kind === "approval") as { gateId: string }
+    ).gateId;
+
+    const { resumed } = resolveGate({ runId: RID, gateId, decision: "deny" });
+    expect(resumed).toBe(false);
+
+    const row = getDb().prepare("SELECT status FROM runs WHERE run_id = ?").get(RID) as {
+      status: string;
+    };
+    expect(row.status).toBe("cancelled");
+    const j = readJournalAfter(RID, -1);
+    expect(j.some((e) => e.kind === "cancelled" && e.terminal)).toBe(true);
+    // Deny path never resumes the SDK (no query() call carried options.resume).
+    expect(
+      mockQuery.mock.calls.some(
+        (c) => (c[0] as { options?: { resume?: string } })?.options?.resume,
+      ),
+    ).toBe(false);
   });
 
   it("resolveGate (dormant machinery, kept) still resumes the SDK session (Options.resume) and continues seq", async () => {

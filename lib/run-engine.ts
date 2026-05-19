@@ -7,9 +7,38 @@ import { ensureOAuthAuth, getClaudeCodePath } from "@/lib/agent-sdk";
 import { getDb } from "@/lib/db";
 import { extractHtml } from "@/lib/extract-html";
 import { getProfile } from "@/lib/profiles";
-import { isTerminalKind, mkRunId, type RunEvent, type RunEventBody } from "@/lib/run-events";
+import {
+  isTerminalKind,
+  mkGateId,
+  mkRunId,
+  type RunEvent,
+  type RunEventBody,
+} from "@/lib/run-events";
 import { appendEvent, journalPath, readJournalAfter } from "@/lib/run-journal";
-import { agentToolDecision, type ToolDecision } from "@/lib/tool-policy";
+import { agentToolDecision } from "@/lib/tool-policy";
+
+/**
+ * P3 approved-set replay key. An approved (tool,args) on a RESUMED turn must
+ * NOT re-gate (else an infinite gate loop on every approval — the single
+ * highest-risk correctness item, the one piece hermes solves with
+ * `approve_session`). The set is rebuilt FROM THE JOURNAL (P1 Q2: journal =
+ * source of truth) so it survives the `consumeRun` re-entry AND a faro restart
+ * between gate and answer — never an in-memory Map keyed by runId.
+ *
+ * LIMITATION: `JSON.stringify(args)` is order-sensitive. Stable enough for a
+ * single-operator station (the SDK replays the same toolInput object shape on
+ * resume); a future hardening could canonicalize key order.
+ */
+export function approvalKey(tool: string, args: unknown): string {
+  return `${tool} ${JSON.stringify(args)}`;
+}
+
+/** The SDK's canUseTool only ever sees allow|deny (PermissionResult). A `gate`
+ *  ToolDecision is converted in the callback (journal + deny-without-interrupt)
+ *  and never returned to the SDK. */
+type SdkPermission =
+  | { behavior: "allow"; updatedInput: Record<string, unknown> }
+  | { behavior: "deny"; message: string };
 
 /**
  * P1 Control Station run engine. Built strictly ON TOP OF the Phase 4.5
@@ -282,6 +311,16 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
   // Real cost captured from the SDK result (if one arrives) so the generation
   // `done` carries it instead of 0 — keeps the /runs recents column accurate.
   let lastCostUsd = 0;
+  // P3: set true by canUseTool when it gates a tool THIS turn. The
+  // deny-without-interrupt ends the turn with a clean `result`; this flag tells
+  // the result handler the run is PAUSED at a gate (approval + awaiting_approval
+  // already journaled by the callback) so it must NOT finalize as `done`. This
+  // is a fresh per-turn live flag — deliberately NOT the dead legacy
+  // `gatePending` const (left untouched, out of scope).
+  let gateEmittedThisTurn = false;
+  // P3 approved-set: rebuilt from the journal on a resumed turn so an approved
+  // (tool,args) is auto-allowed instead of re-gated. Populated below.
+  const approvedKeys = new Set<string>();
 
   const emitStartedOnce = (sid: string): RunEvent | null => {
     if (startedEmitted) return null;
@@ -359,26 +398,73 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
   try {
     ensureOAuthAuth(); // MUST stay inside try (4.5 async-generator lesson).
 
-    // Agent mode → default-deny gate (Q3/N1). Generation mode → tools OFF,
-    // no canUseTool, HTML recovered from streamed text (documented v1
-    // simplification). canUseTool is the installed 3-arg signature.
-    // Single-user override (P1 Q3/N1 — see lib/tool-policy.ts): agent mode is
-    // now PERMISSIVE — every tool is allowed except a destructive shell
-    // command, which is hard-DENIED (not gated). `gatePending` is never set,
-    // so the HIL approval/resume path stays dormant. The deny is WITHOUT
-    // `interrupt` ⇒ only that tool call is refused; the turn ends naturally.
+    // P3 Task 5: on a RESUMED turn rebuild the approved-set from the journal
+    // BEFORE the query() loop. Pair every non-deny `gate_resolved` to its
+    // originating `approval` (same gateId) and key it by (tool,args). The SDK
+    // re-attempts the gated tool on resume — without this it would re-gate
+    // forever. Journal-derived ⇒ survives consumeRun re-entry + a restart.
+    if (input.resumeSessionId) {
+      const past = readJournalAfter(runId, Number.NEGATIVE_INFINITY);
+      for (const e of past) {
+        if (
+          e.kind === "gate_resolved" &&
+          !["deny", "reject", "no"].includes(e.decision.trim().toLowerCase())
+        ) {
+          const appr = past.find((p) => p.kind === "approval" && p.gateId === e.gateId);
+          if (appr && appr.kind === "approval") {
+            approvedKeys.add(approvalKey(appr.tool, appr.args));
+          }
+        }
+      }
+    }
+
+    // Agent mode → P3 SELECTIVE HIL gate (decision 35). Generation mode →
+    // tools OFF, no canUseTool, HTML recovered from streamed text (documented
+    // v1 simplification). canUseTool is the installed 3-arg signature.
+    //  - approved-set hit (resumed, previously-approved tool) → ALLOW (no
+    //    re-gate — the critical Task 5 short-circuit, BEFORE agentToolDecision).
+    //  - agentToolDecision `gate` → journal `approval` + `awaiting_approval`,
+    //    return deny WITHOUT `interrupt` (only that tool call is refused, the
+    //    turn ends naturally, the run is resumable via the now-LIVE
+    //    resolveGate — verified @claude-agent-sdk 0.2.140).
+    //  - `deny` (destructive shell) → hard refuse (unchanged).
+    //  - else → allow.
     const canUseTool =
       input.mode === "agent"
         ? async (
             toolName: string,
             toolInput: Record<string, unknown>,
             _opts: { toolUseID: string; signal: AbortSignal },
-          ): Promise<ToolDecision> => {
+          ): Promise<SdkPermission> => {
+            if (approvedKeys.has(approvalKey(toolName, toolInput))) {
+              return { behavior: "allow", updatedInput: toolInput };
+            }
             const decision = agentToolDecision(toolName, toolInput);
+            if (decision.behavior === "gate") {
+              const gateId = mkGateId();
+              journalEvent(runId, {
+                kind: "approval",
+                gateId,
+                tool: toolName,
+                args: toolInput,
+              });
+              journalEvent(runId, { kind: "status", status: "awaiting_approval" });
+              gateEmittedThisTurn = true;
+              console.warn(
+                `[faro] run-engine[${runId}] gated ${toolName} (gate ${gateId}): ${JSON.stringify(
+                  toolInput,
+                ).slice(0, 200)}`,
+              );
+              return {
+                behavior: "deny",
+                message: `Gated for operator approval (gate ${gateId}): ${decision.reason}`,
+              };
+            }
             if (decision.behavior === "deny") {
               console.warn(
                 `[faro] run-engine[${runId}] blocked destructive ${toolName}: ${JSON.stringify(toolInput).slice(0, 200)}`,
               );
+              return decision;
             }
             return decision;
           }
@@ -475,6 +561,12 @@ export async function* streamRun(input: StreamRunInput): AsyncGenerator<RunEvent
           if (gatePending) {
             // Run is PAUSED at a gate — no terminal event; resolveGate resumes.
             yield journalEvent(runId, { kind: "status", status: "awaiting_approval" });
+          } else if (gateEmittedThisTurn) {
+            // P3: canUseTool gated a tool this turn (deny-without-interrupt →
+            // the model ended the turn with a clean `result`). The `approval`
+            // + `status: awaiting_approval` were already journaled by the
+            // callback. Do NOT finalize — the run stays awaiting_approval and
+            // is continued by resolveGate on the operator's answer.
           } else if (input.mode === "generation") {
             yield finalizeGeneration("clean result");
           } else {

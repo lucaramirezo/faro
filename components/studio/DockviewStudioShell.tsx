@@ -28,11 +28,13 @@ import {
   type SerializedDockview,
   themeDark,
 } from "dockview";
+import { useRouter } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import { createProjectAction, persistStudioLayoutAction } from "@/app/actions/projects";
 import { Board, type BoardRun } from "@/components/studio/Board";
 import { ArtifactPanel } from "@/components/studio/panels/ArtifactPanel";
 import { GalleryPanel } from "@/components/studio/panels/GalleryPanel";
+import { GateInboxPanel } from "@/components/studio/panels/GateInboxPanel";
 import { HomePanel } from "@/components/studio/panels/HomePanel";
 import { ProjectPanel } from "@/components/studio/panels/ProjectPanel";
 import { RunPanel } from "@/components/studio/panels/RunPanel";
@@ -51,7 +53,7 @@ export interface ShellProps {
   activeArtifact?: ActiveArtifact | null;
 }
 
-type PanelKind = "home" | "gallery" | "board" | "artifact" | "run" | "project";
+type PanelKind = "home" | "gallery" | "board" | "artifact" | "run" | "project" | "gate";
 
 const PERSIST_DEBOUNCE_MS = 400;
 
@@ -67,6 +69,7 @@ export default function DockviewStudioShell({
   const live = useRef({ galleryNode, boardRuns, activeArtifact });
   live.current = { galleryNode, boardRuns, activeArtifact };
 
+  const router = useRouter();
   const apiRef = useRef<DockviewApi | null>(null);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const disposeRef = useRef<(() => void) | null>(null);
@@ -80,8 +83,8 @@ export default function DockviewStudioShell({
   // Where a panel of a given kind belongs.
   const targetFor = useCallback((api: DockviewApi, kind: PanelKind) => {
     const home = api.getPanel("home:main");
-    if (kind === "gallery") {
-      // Gallery belongs beside Home in the left group.
+    if (kind === "gallery" || kind === "gate") {
+      // Gallery + the sticky Gate Inbox belong beside Home in the left group.
       return home ? { referenceGroup: home.api.group } : undefined;
     }
     // board / run / artifact / project → the work (right/big) group, anchored
@@ -106,8 +109,9 @@ export default function DockviewStudioShell({
         component: kind,
         title,
         params,
-        // run stays mounted across tab switches (SSE survival, #1 guard).
-        renderer: kind === "run" ? "always" : "onlyWhenVisible",
+        // run + gate stay mounted across tab switches: run = SSE survival;
+        // gate = the 5s poll must keep running (#1 regression guard).
+        renderer: kind === "run" || kind === "gate" ? "always" : "onlyWhenVisible",
         position: targetFor(api, kind),
       });
     },
@@ -163,6 +167,16 @@ export default function DockviewStudioShell({
     },
     [openProject],
   );
+  const openGateInbox = useCallback(() => openPanel("gate", "main", {}, "Gate Inbox"), [openPanel]);
+  // Dream review is a ROUTE (the unchanged sharded /dreams/<runId> page), NOT
+  // a Dockview panel (locked claims-stay-separate boundary). Mirrors
+  // QuickSwitcher's run/artifact router.push precedent.
+  const openDream = useCallback(
+    (runId: string) => {
+      router.push(`/dreams/${runId}`);
+    },
+    [router],
+  );
 
   const components = useMemo(
     () => ({
@@ -195,13 +209,17 @@ export default function DockviewStudioShell({
       run: (props: IDockviewPanelProps<{ runId: string }>) => (
         <RunPanel runId={props.params.runId} />
       ),
+      gate: () => <GateInboxPanel onOpenDream={openDream} />,
     }),
-    [openGallery, openBoard, onCreateProject, openRun, openProject],
+    [openGallery, openBoard, onCreateProject, openRun, openProject, openDream],
   );
 
   const tabComponents = useMemo(
     () => ({
       homeTab: (props: IDockviewPanelHeaderProps) => <DockviewDefaultTab hideClose {...props} />,
+      // Gate Inbox is sticky/unclosable like Home (the unified surface must
+      // always be present — mirror homeTab).
+      gateTab: (props: IDockviewPanelHeaderProps) => <DockviewDefaultTab hideClose {...props} />,
     }),
     [],
   );
@@ -218,6 +236,25 @@ export default function DockviewStudioShell({
       home = api.getPanel("home:main");
     }
     if (home) home.api.group.locked = true;
+  }, []);
+
+  // The Gate Inbox is the P3 unified surface — it must ALWAYS be present, on a
+  // fresh layout AND on a restored pre-P3 P2 layout (operators with a saved
+  // layout must still get the feature). Idempotent (getPanel guard), so it is
+  // the single owner of gate:main rather than baking it into
+  // buildDefaultLayout. Sticky in Home's left group, renderer:'always' so the
+  // poll survives tab switches.
+  const ensureGateInbox = useCallback((api: DockviewApi) => {
+    if (api.getPanel("gate:main")) return;
+    const home = api.getPanel("home:main");
+    api.addPanel({
+      id: "gate:main",
+      component: "gate",
+      tabComponent: "gateTab",
+      title: "Gate Inbox",
+      renderer: "always",
+      ...(home ? { position: { referenceGroup: home.api.group } } : {}),
+    });
   }, []);
 
   const buildDefaultLayout = useCallback(
@@ -265,6 +302,9 @@ export default function DockviewStudioShell({
         // Restored layouts must still honor the sticky-Home invariant.
         ensureStickyHome(api);
       }
+      // Both paths: guarantee the unified Gate Inbox exists (fresh layout OR a
+      // restored pre-P3 layout that predates it).
+      ensureGateInbox(api);
 
       // Bind the single Artifact panel from the route (locked P2 scope).
       syncArtifactPanel(api, live.current.activeArtifact?.artifact.artifact_id ?? null);
@@ -281,7 +321,7 @@ export default function DockviewStudioShell({
       });
       disposeRef.current = () => disposable.dispose();
     },
-    [initialLayout, buildDefaultLayout, ensureStickyHome, syncArtifactPanel],
+    [initialLayout, buildDefaultLayout, ensureStickyHome, ensureGateInbox, syncArtifactPanel],
   );
 
   // Re-bind the single Artifact panel whenever the route artifact changes
@@ -304,6 +344,23 @@ export default function DockviewStudioShell({
     window.addEventListener("faro:open-project", onOpenProjectEvt);
     return () => window.removeEventListener("faro:open-project", onOpenProjectEvt);
   }, [openProject]);
+
+  // P3: deep-link a dream review (route, not panel) + focus the Gate Inbox.
+  // Same dispatch-from-any-surface precedent as faro:open-project; any caller
+  // (HomePanel, ⌘P, a notifier) can drive these without owning the api.
+  useEffect(() => {
+    const onOpenDreamEvt = (e: Event) => {
+      const d = (e as CustomEvent<{ runId?: string }>).detail;
+      if (d?.runId) openDream(d.runId);
+    };
+    const onOpenGateInboxEvt = () => openGateInbox();
+    window.addEventListener("faro:open-dream", onOpenDreamEvt);
+    window.addEventListener("faro:open-gate-inbox", onOpenGateInboxEvt);
+    return () => {
+      window.removeEventListener("faro:open-dream", onOpenDreamEvt);
+      window.removeEventListener("faro:open-gate-inbox", onOpenGateInboxEvt);
+    };
+  }, [openDream, openGateInbox]);
 
   useEffect(() => {
     return () => {
